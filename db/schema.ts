@@ -7,6 +7,31 @@ export const users = sqliteTable("users", {
   phone: text("phone"),
   activeRole: text("active_role").notNull().default("customer"),
   language: text("language").notNull().default("en"),
+  city: text("city"),
+  onboardingComplete: integer("onboarding_complete", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const addresses = sqliteTable("addresses", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  label: text("label").notNull().default("Home"),
+  address: text("address").notNull(),
+  city: text("city").notNull(),
+  instructions: text("instructions").notNull().default(""),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const courierProfiles = sqliteTable("courier_profiles", {
+  userId: text("user_id").primaryKey(),
+  vehicleType: text("vehicle_type").notNull().default("motorcycle"),
+  status: text("status").notNull().default("offline"),
+  verificationStatus: text("verification_status").notNull().default("pending"),
+  rating: real("rating").notNull().default(5),
+  completedDeliveries: integer("completed_deliveries").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -68,6 +93,7 @@ export const orderItems = sqliteTable("order_items", {
 export const deliveries = sqliteTable("deliveries", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull().unique(),
+  trackingToken: text("tracking_token").unique(),
   courierId: text("courier_id"),
   status: text("status").notNull().default("unassigned"),
   pickupAddress: text("pickup_address").notNull(),

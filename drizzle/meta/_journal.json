@@ -15,6 +15,13 @@
       "when": 1785183706135,
       "tag": "0001_tiresome_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785190995490,
+      "tag": "0002_mean_toxin",
+      "breakpoints": true
     }
   ]
 }
