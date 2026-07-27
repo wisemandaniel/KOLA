@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Role = "customer" | "vendor" | "rider";
 
@@ -33,14 +33,34 @@ export default function Home() {
   const [draft, setDraft] = useState("");
 
   const view = useMemo(() => roleCopy[role], [role]);
+  useEffect(() => {
+    fetch("/api/workspace")
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!data?.messages?.length) return;
+        setMessages(data.messages.map((message: Record<string, unknown>) => ({
+          who: String(message.sender_name),
+          text: String(message.body),
+          time: new Date(Number(message.created_at)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          kind: String(message.sender_role),
+        })));
+      })
+      .catch(() => undefined);
+  }, []);
   const showToast = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2400);
   };
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!draft.trim()) return;
-    setMessages([...messages, { who: "You", text: draft.trim(), time: "Now", kind: "customer" }]);
+    const body = draft.trim();
+    setMessages([...messages, { who: "You", text: body, time: "Now", kind: role }]);
     setDraft("");
+    await fetch("/api/workspace", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "send_message", orderId: "KL-2084", role, body }),
+    }).catch(() => undefined);
   };
 
   return (

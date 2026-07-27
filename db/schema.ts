@@ -1,4 +1,125 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  phone: text("phone"),
+  activeRole: text("active_role").notNull().default("customer"),
+  language: text("language").notNull().default("en"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const vendors = sqliteTable("vendors", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  category: text("category").notNull(),
+  address: text("address").notNull(),
+  city: text("city").notNull(),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  status: text("status").notNull().default("active"),
+  rating: real("rating").notNull().default(5),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const products = sqliteTable("products", {
+  id: text("id").primaryKey(),
+  vendorId: text("vendor_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  category: text("category").notNull(),
+  price: integer("price").notNull(),
+  stock: integer("stock").notNull().default(0),
+  emoji: text("emoji").notNull().default("📦"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const orders = sqliteTable("orders", {
+  id: text("id").primaryKey(),
+  customerId: text("customer_id").notNull(),
+  vendorId: text("vendor_id").notNull(),
+  status: text("status").notNull().default("pending"),
+  subtotal: integer("subtotal").notNull(),
+  deliveryFee: integer("delivery_fee").notNull(),
+  total: integer("total").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  paymentStatus: text("payment_status").notNull().default("pending"),
+  deliveryAddress: text("delivery_address").notNull(),
+  deliveryLat: real("delivery_lat"),
+  deliveryLng: real("delivery_lng"),
+  notes: text("notes").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const orderItems = sqliteTable("order_items", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  productId: text("product_id").notNull(),
+  name: text("name").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: integer("unit_price").notNull(),
+});
+
+export const deliveries = sqliteTable("deliveries", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull().unique(),
+  courierId: text("courier_id"),
+  status: text("status").notNull().default("unassigned"),
+  pickupAddress: text("pickup_address").notNull(),
+  dropoffAddress: text("dropoff_address").notNull(),
+  distanceKm: real("distance_km").notNull().default(0),
+  courierFee: integer("courier_fee").notNull(),
+  pickupCode: text("pickup_code").notNull(),
+  deliveryCode: text("delivery_code").notNull(),
+  estimatedArrival: integer("estimated_arrival"),
+  acceptedAt: integer("accepted_at"),
+  pickedUpAt: integer("picked_up_at"),
+  deliveredAt: integer("delivered_at"),
+});
+
+export const trackingEvents = sqliteTable("tracking_events", {
+  id: text("id").primaryKey(),
+  deliveryId: text("delivery_id").notNull(),
+  eventType: text("event_type").notNull(),
+  label: text("label").notNull(),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const messages = sqliteTable("messages", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  senderId: text("sender_id").notNull(),
+  senderName: text("sender_name").notNull(),
+  senderRole: text("sender_role").notNull(),
+  body: text("body").notNull(),
+  messageType: text("message_type").notNull().default("text"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const payments = sqliteTable("payments", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  provider: text("provider").notNull(),
+  amount: integer("amount").notNull(),
+  status: text("status").notNull().default("pending"),
+  providerReference: text("provider_reference"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const reviews = sqliteTable("reviews", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  authorId: text("author_id").notNull(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: text("subject_id").notNull(),
+  rating: integer("rating").notNull(),
+  comment: text("comment").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+});
