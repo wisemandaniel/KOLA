@@ -1,19 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bell, CircleUserRound, ClipboardList, Home as HomeIcon, MessageSquare, ShoppingBag, WalletCards } from "lucide-react";
 
 type Role = "customer" | "vendor" | "rider";
-type Product = { id: string; name: string; vendor: string; price: number; stock: number; eta: string; rating: string; emoji: string; color: string };
+type Product = { id: string; name: string; vendor: string; price: number; stock: number; eta: string; rating: string; emoji: string; color: string; image?: string };
 type Order = { id: string; status: string; total: number; payment_status: string; delivery_address: string };
 type Delivery = { id: string; order_id: string; status: string; courier_fee: number; distance_km: number; dropoff_address: string };
 type Message = { who: string; text: string; time: string; kind: string };
 type Workspace = { products: Product[]; orders: Order[]; deliveries: Delivery[]; messages: Message[]; actor?: { displayName: string } };
 
 const fallbackProducts: Product[] = [
-  { id: "prd_ndole", name: "Ndolé royal", vendor: "Chez Mado", price: 3500, stock: 24, eta: "25–35 min", rating: "4.9", emoji: "🍲", color: "#e7f0d8" },
-  { id: "prd_market", name: "Panier marché frais", vendor: "Marché Central", price: 8500, stock: 12, eta: "40–55 min", rating: "4.8", emoji: "🥬", color: "#dceee4" },
-  { id: "prd_shoes", name: "Sneakers Noki", vendor: "Bonamoussadi Style", price: 22000, stock: 8, eta: "Today", rating: "4.7", emoji: "👟", color: "#e5e4f2" },
-  { id: "prd_dg", name: "Poulet DG", vendor: "La Marmite", price: 5000, stock: 18, eta: "30–40 min", rating: "4.9", emoji: "🍛", color: "#f4e3cf" },
+  { id: "prd_ndole", name: "Ndolé royal", vendor: "Chez Mado", price: 3500, stock: 24, eta: "25–35 min", rating: "4.9", emoji: "", color: "#e7f0d8", image:"https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=700&q=80" },
+  { id: "prd_market", name: "Panier marché frais", vendor: "Marché Central", price: 8500, stock: 12, eta: "40–55 min", rating: "4.8", emoji: "", color: "#dceee4", image:"https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=700&q=80" },
+  { id: "prd_shoes", name: "Sneakers Noki", vendor: "Bonamoussadi Style", price: 22000, stock: 8, eta: "Today", rating: "4.7", emoji: "", color: "#e5e4f2", image:"https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=700&q=80" },
+  { id: "prd_dg", name: "Poulet DG", vendor: "La Marmite", price: 5000, stock: 18, eta: "30–40 min", rating: "4.9", emoji: "", color: "#f4e3cf", image:"https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=700&q=80" },
 ];
 
 const roleCopy = {
@@ -45,9 +46,10 @@ export default function Home() {
       if (!response.ok) return;
       const raw = await response.json();
       const colors = ["#e7f0d8", "#dceee4", "#e5e4f2", "#f4e3cf"];
+      const images = ["https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=700&q=80","https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=700&q=80","https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=700&q=80","https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=700&q=80"];
       setData({
         actor: raw.actor,
-        products: raw.products.map((p: Record<string, unknown>, i: number) => ({ id: String(p.id), name: String(p.name), vendor: "Chez Mado", price: Number(p.price), stock: Number(p.stock), eta: "25–40 min", rating: "4.9", emoji: String(p.emoji), color: colors[i % colors.length] })),
+        products: raw.products.map((p: Record<string, unknown>, i: number) => ({ id: String(p.id), name: String(p.name), vendor: "Chez Mado", price: Number(p.price), stock: Number(p.stock), eta: "25–40 min", rating: "4.9", emoji: "", color: colors[i % colors.length], image: images[i % images.length] })),
         orders: raw.orders,
         deliveries: raw.deliveries,
         messages: raw.messages.map((m: Record<string, unknown>) => ({ who: String(m.sender_name), text: String(m.body), time: new Date(Number(m.created_at)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), kind: String(m.sender_role) })),
@@ -95,12 +97,12 @@ export default function Home() {
       <div className="location"><span>Delivering to</span><strong>Bonapriso, Douala⌄</strong></div>
       <div className="role-switch" aria-label="Choose app mode">{(["customer", "vendor", "rider"] as Role[]).map((item) => <button key={item} className={role === item ? "active" : ""} onClick={() => { setRole(item); setTab("Home"); }}>{item === "customer" ? "Buy" : item === "vendor" ? "Sell" : "Deliver"}</button>)}</div>
       {role === "customer" && <button className="basket-btn" onClick={() => setCheckoutOpen(true)}>Bag <b>{cart.length}</b></button>}
-      <button className="round-btn" onClick={() => notify("You’re all caught up")}>🔔<i /></button>
+      <button className="round-btn" aria-label="Notifications" onClick={() => notify("You’re all caught up")}><Bell size={17}/><i /></button>
       <button className="avatar">{data.actor?.displayName?.split(" ").map((p) => p[0]).join("").slice(0, 2) || "MN"}</button>
     </header>
 
     <div className="shell">
-      <aside><nav>{[["Home", "⌂"], ["Orders", "▣"], ["Messages", "◌"], ["Wallet", "◫"], ["Account", "◎"]].map(([item, icon]) => <button key={item} className={tab === item ? "active" : ""} onClick={() => item === "Messages" ? setChatOpen(true) : setTab(item)}><span className="icon">{icon}</span>{item}{item === "Messages" && <b>{data.messages.length}</b>}</button>)}</nav><div className="support"><span>?</span><div><strong>Need help?</strong><small>English & Français</small></div></div></aside>
+      <aside><nav>{[["Home", <HomeIcon key="h" size={18}/>], ["Orders", <ClipboardList key="o" size={18}/>], ["Messages", <MessageSquare key="m" size={18}/>], ["Wallet", <WalletCards key="w" size={18}/>], ["Account", <CircleUserRound key="a" size={18}/>]] .map(([item, icon]) => <button key={String(item)} className={tab === item ? "active" : ""} onClick={() => item === "Messages" ? setChatOpen(true) : setTab(String(item))}><span className="icon">{icon}</span>{item}{item === "Messages" && <b>{data.messages.length}</b>}</button>)}</nav><div className="support"><span>?</span><div><strong>Need help?</strong><small>English & Français</small></div></div></aside>
       <section className="content">
         {tab === "Home" && <>
           <div className="intro"><div><p>{view.eyebrow}, {data.actor?.displayName?.split(" ")[0] || "Mireille"}</p><h1>{view.title}</h1></div><button className="primary" onClick={() => role === "vendor" ? setProductOpen(true) : notify(role === "customer" ? "Showing nearby stores" : "Delivery requests updated")}>{view.action} <span>→</span></button></div>
@@ -124,8 +126,8 @@ export default function Home() {
 function CustomerHome({ products, onAdd, onChat, onToast }: { products: Product[]; onAdd: (p: Product) => void; onChat: () => void; onToast: (s: string) => void }) {
   return <><article className="active-delivery"><div className="delivery-copy"><div className="label"><i /> ON THE WAY <span>8 min</span></div><h2>Your lunch is almost there.</h2><p>Brice has picked up your order from Chez Mado.</p><div className="courier"><div className="photo">BR</div><div><strong>Brice N.</strong><small>★ 4.9 · 386 deliveries</small></div><button onClick={() => onToast("Calling Brice…")}>☎</button><button onClick={onChat}>◌ <b>2</b></button></div></div><Map /></article>
     <div className="section-head"><div><p>AROUND YOU</p><h2>Made for right now</h2></div><button onClick={() => onToast("All nearby stores loaded")}>See all →</button></div>
-    <div className="categories">{["🍽️ Food", "🛒 Groceries", "👕 Fashion", "💊 Pharmacy", "📦 Send a parcel"].map((c, i) => <button className={i === 0 ? "active" : ""} key={c}>{c}</button>)}</div>
-    <div className="product-grid">{products.map((p) => <article className="product" key={p.id} onClick={() => onAdd(p)}><div className="product-img" style={{ background: p.color }}><span>{p.emoji}</span><button aria-label={`Add ${p.name}`}>＋</button></div><h3>{p.name}</h3><p>{p.vendor} · ★ {p.rating}</p><div><strong>{p.price.toLocaleString()} FCFA</strong><span>{p.stock} left</span></div></article>)}</div></>;
+    <div className="categories">{["Food", "Groceries", "Fashion", "Pharmacy", "Send a parcel"].map((c, i) => <button className={i === 0 ? "active" : ""} key={c}>{c}</button>)}</div>
+    <div className="product-grid">{products.map((p) => <article className="product" key={p.id} onClick={() => onAdd(p)}><div className="product-img" style={{ background: p.color }}>{p.image?<img src={p.image} alt=""/>:<span>{p.name.slice(0,1)}</span>}<button aria-label={`Add ${p.name}`}>＋</button></div><h3>{p.name}</h3><p>{p.vendor} · ★ {p.rating}</p><div><strong>{p.price.toLocaleString()} FCFA</strong><span>{p.stock} left</span></div></article>)}</div></>;
 }
 
 function Map() { return <div className="map"><div className="road r1" /><div className="road r2" /><div className="road r3" /><span className="map-label one">Rue Njo-Njo</span><span className="map-label two">Avenue de Gaulle</span><div className="vendor-pin">🍲</div><div className="route-line" /><div className="rider-pin">🛵</div><div className="home-pin">⌂</div></div>; }
