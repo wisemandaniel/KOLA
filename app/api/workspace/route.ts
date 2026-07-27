@@ -107,6 +107,22 @@ export async function POST(request: Request) {
     return Response.json({ id });
   }
 
+  if (action === "complete_onboarding") {
+    const role = String(body.role ?? "customer");
+    if (!["customer", "vendor", "rider"].includes(role)) return Response.json({ error: "Invalid role" }, { status: 400 });
+    await db.prepare("UPDATE users SET active_role = ?, phone = ? WHERE email = ?")
+      .bind(role, String(body.phone ?? ""), user.email).run();
+    return Response.json({ role });
+  }
+
+  if (action === "update_location") {
+    const lat = Number(body.latitude); const lng = Number(body.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return Response.json({ error: "Invalid location" }, { status: 400 });
+    await db.prepare("UPDATE deliveries SET current_lat = ?, current_lng = ?, location_updated_at = ? WHERE id = ?")
+      .bind(lat, lng, now, String(body.deliveryId ?? "del_2084")).run();
+    return Response.json({ updatedAt: now });
+  }
+
   if (action === "create_order") {
     const items = Array.isArray(body.items) ? body.items as D1Row[] : [];
     if (!items.length) return Response.json({ error: "Cart is empty" }, { status: 400 });

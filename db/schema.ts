@@ -80,6 +80,9 @@ export const deliveries = sqliteTable("deliveries", {
   acceptedAt: integer("accepted_at"),
   pickedUpAt: integer("picked_up_at"),
   deliveredAt: integer("delivered_at"),
+  currentLat: real("current_lat"),
+  currentLng: real("current_lng"),
+  locationUpdatedAt: integer("location_updated_at"),
 });
 
 export const trackingEvents = sqliteTable("tracking_events", {
