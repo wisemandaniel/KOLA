@@ -6,10 +6,11 @@ const source = (path) =>
   readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("ships Kola product metadata without starter or ChatGPT sign-in remnants", async () => {
-  const [layout, landing, login] = await Promise.all([
+  const [layout, landing, login, favicon] = await Promise.all([
     source("app/layout.tsx"),
     source("app/page.tsx"),
     source("app/login/LoginClient.tsx"),
+    source("app/favicon.ico/route.ts"),
   ]);
 
   assert.match(layout, /Kola/);
@@ -17,6 +18,8 @@ test("ships Kola product metadata without starter or ChatGPT sign-in remnants", 
   assert.match(login, /WhatsApp/i);
   assert.doesNotMatch(`${layout}\n${landing}\n${login}`, /codex-preview/i);
   assert.doesNotMatch(`${layout}\n${landing}\n${login}`, /sign in with ChatGPT/i);
+  assert.match(favicon, /favicon\.svg/);
+  assert.match(favicon, /status: 308/);
 });
 
 test("protects WhatsApp verification and persistent sessions", async () => {
