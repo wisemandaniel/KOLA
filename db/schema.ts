@@ -48,6 +48,68 @@ export const authSessions = sqliteTable("auth_sessions", {
   index("auth_session_user_idx").on(table.userId),
 ]);
 
+export const oauthStates = sqliteTable("oauth_states", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
+  stateHash: text("state_hash").notNull(),
+  codeVerifier: text("code_verifier"),
+  returnTo: text("return_to").notNull().default("/dashboard"),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("oauth_state_hash_unique").on(table.stateHash),
+  index("oauth_state_expires_idx").on(table.expiresAt),
+]);
+
+export const rateLimits = sqliteTable("rate_limits", {
+  id: text("id").primaryKey(),
+  scope: text("scope").notNull(),
+  subjectHash: text("subject_hash").notNull(),
+  count: integer("count").notNull().default(1),
+  windowStart: integer("window_start").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+}, (table) => [
+  uniqueIndex("rate_limit_scope_subject_window_unique").on(
+    table.scope,
+    table.subjectHash,
+    table.windowStart,
+  ),
+  index("rate_limit_expires_idx").on(table.expiresAt),
+]);
+
+export const securityEvents = sqliteTable("security_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id"),
+  eventType: text("event_type").notNull(),
+  severity: text("severity").notNull().default("info"),
+  ipHash: text("ip_hash"),
+  userAgent: text("user_agent"),
+  metadata: text("metadata").notNull().default("{}"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("security_event_created_idx").on(table.createdAt),
+  index("security_event_user_idx").on(table.userId, table.createdAt),
+]);
+
+export const idempotencyRecords = sqliteTable("idempotency_records", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  scope: text("scope").notNull(),
+  requestKey: text("request_key").notNull(),
+  status: text("status").notNull().default("processing"),
+  responseJson: text("response_json"),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idempotency_user_scope_key_unique").on(
+    table.userId,
+    table.scope,
+    table.requestKey,
+  ),
+  index("idempotency_expires_idx").on(table.expiresAt),
+]);
+
 export const addresses = sqliteTable("addresses", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
@@ -350,4 +412,19 @@ export const auditLogs = sqliteTable("audit_logs", {
   createdAt: integer("created_at").notNull(),
 }, (table) => [
   index("audit_log_created_idx").on(table.createdAt),
+]);
+
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("push_subscription_endpoint_unique").on(table.endpoint),
+  index("push_subscription_user_idx").on(table.userId, table.active),
 ]);

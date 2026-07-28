@@ -4,6 +4,9 @@ import { hashValue, safeReturnPath, SESSION_COOKIE } from "../../../auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    return Response.json({ error: "Cross-site sign-out rejected." }, { status: 403 });
+  }
   const returnTo = safeReturnPath(
     new URL(request.url).searchParams.get("return_to"),
     "/",

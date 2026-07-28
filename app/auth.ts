@@ -10,7 +10,7 @@ export type AuthenticatedUser = {
   displayName: string;
   email: string;
   phone: string | null;
-  provider: "whatsapp";
+  provider: "whatsapp" | "google" | "facebook";
 };
 
 type SessionRow = {
@@ -18,6 +18,7 @@ type SessionRow = {
   display_name: string;
   email: string;
   phone: string | null;
+  provider: "whatsapp" | "google" | "facebook";
 };
 
 export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> {
@@ -26,7 +27,11 @@ export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> 
   if (!token) return null;
 
   const row = await env.DB.prepare(
-    `SELECT u.id, u.display_name, u.email, u.phone
+    `SELECT u.id, u.display_name, u.email, u.phone,
+            COALESCE((
+              SELECT ai.provider FROM auth_identities ai
+              WHERE ai.user_id=u.id ORDER BY ai.created_at ASC LIMIT 1
+            ), 'whatsapp') AS provider
      FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ? AND s.expires_at > ?
@@ -42,7 +47,7 @@ export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> 
     displayName: row.display_name,
     email: row.email,
     phone: row.phone,
-    provider: "whatsapp",
+    provider: row.provider,
   };
 }
 
@@ -84,14 +89,50 @@ export async function hashValue(value: string): Promise<string> {
   ).join("");
 }
 
+export async function createSession(userId: string) {
+  const rawToken = createSessionToken();
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO auth_sessions
+        (id, user_id, token_hash, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).bind(
+      crypto.randomUUID(),
+      userId,
+      await hashValue(rawToken),
+      now + SESSION_MAX_AGE_SECONDS * 1000,
+      now,
+    ),
+    env.DB.prepare("DELETE FROM auth_sessions WHERE expires_at <= ?").bind(now),
+  ]);
+  return {
+    rawToken,
+    cookie: `${SESSION_COOKIE}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SECONDS}`,
+  };
+}
+
 export function readRuntimeAuthConfig() {
   const runtime = env as unknown as Record<string, string | D1Database | undefined>;
   return {
     sessionSecret: stringValue(runtime.AUTH_SESSION_SECRET),
     waSenderApiKey: stringValue(runtime.WASENDER_API_KEY),
+    googleClientId: stringValue(runtime.GOOGLE_CLIENT_ID),
+    googleClientSecret: stringValue(runtime.GOOGLE_CLIENT_SECRET),
+    facebookAppId: stringValue(runtime.FACEBOOK_APP_ID),
+    facebookAppSecret: stringValue(runtime.FACEBOOK_APP_SECRET),
+    facebookGraphVersion: stringValue(runtime.FACEBOOK_GRAPH_VERSION),
   };
 }
 
 function stringValue(value: string | D1Database | undefined): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function createSessionToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }

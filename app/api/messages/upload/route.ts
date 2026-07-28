@@ -1,5 +1,11 @@
 import { env } from "cloudflare:workers";
 import { canAccessOrder, getRequestActor } from "../../../order-access";
+import { matchesDeclaredFileType } from "../../../file-security";
+import {
+  enforceRateLimit,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../../security";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +22,18 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   const actor = await getRequestActor();
   if (!actor) return reject("Authentication required", 401);
+  const limited = await enforceRateLimit({
+    request,
+    scope: "message.upload.user",
+    subject: actor.id,
+    limit: 20,
+    windowSeconds: 10 * 60,
+  });
+  if (limited) return limited;
 
   let form: FormData;
   try {
@@ -49,6 +65,9 @@ export async function POST(request: Request) {
         : "Voice notes must be smaller than 12 MB.",
       413,
     );
+  }
+  if (!(await matchesDeclaredFileType(file, baseContentType))) {
+    return reject("The attachment contents do not match its file type.", 415);
   }
 
   const mediaBucket = (env as unknown as { MEDIA?: R2Bucket }).MEDIA;
@@ -116,7 +135,7 @@ export async function POST(request: Request) {
         now,
       ),
       env.DB.prepare(
-        `INSERT INTO notifications (id,user_id,type,title,body,link,created_at)
+        `INSERT INTO notifications (id,user_id,type,title,body,href,created_at)
          SELECT lower(hex(randomblob(16))), participants.user_id, 'message', ?, ?, '/dashboard', ?
          FROM (
            SELECT o.customer_id AS user_id FROM orders o WHERE o.id=?
@@ -150,5 +169,5 @@ export async function POST(request: Request) {
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }

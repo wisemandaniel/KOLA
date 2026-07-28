@@ -1,20 +1,39 @@
 import { env } from "cloudflare:workers";
 import { getRequestActor } from "../../../order-access";
+import { matchesDeclaredFileType } from "../../../file-security";
+import {
+  enforceRateLimit,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../../security";
 
 export const dynamic = "force-dynamic";
 
 const TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   const actor = await getRequestActor();
   if (!actor) return reject("Authentication required", 401);
   if (actor.role !== "rider") return reject("Rider account required", 403);
+  const limited = await enforceRateLimit({
+    request,
+    scope: "verification.upload.user",
+    subject: actor.id,
+    limit: 6,
+    windowSeconds: 60 * 60,
+  });
+  if (limited) return limited;
   const form = await request.formData();
   const file = form.get("file");
   const documentType = String(form.get("documentType") ?? "identity");
   if (!(file instanceof File)) return reject("Choose a verification document.");
   if (!TYPES.has(file.type) || !file.size || file.size > 8 * 1024 * 1024) {
     return reject("Use a JPG, PNG, WebP, or PDF smaller than 8 MB.", 413);
+  }
+  if (!(await matchesDeclaredFileType(file, file.type))) {
+    return reject("The document contents do not match its file type.", 415);
   }
   const bucket = (env as unknown as { MEDIA?: R2Bucket }).MEDIA;
   if (!bucket) return reject("Secure document storage is unavailable.", 503);
@@ -39,5 +58,5 @@ export async function POST(request: Request) {
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }

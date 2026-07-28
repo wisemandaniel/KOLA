@@ -1,11 +1,16 @@
 import { env } from "cloudflare:workers";
 import {
+  createSession,
   hashValue,
   readRuntimeAuthConfig,
   safeReturnPath,
-  SESSION_COOKIE,
-  SESSION_MAX_AGE_SECONDS,
 } from "../../../../auth";
+import {
+  enforceRateLimit,
+  recordSecurityEvent,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../../../security";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +31,16 @@ type IdentityRow = {
 };
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
+  const limited = await enforceRateLimit({
+    request,
+    scope: "auth.whatsapp.verify.ip",
+    limit: 20,
+    windowSeconds: 15 * 60,
+  });
+  if (limited) return limited;
+
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -72,6 +87,11 @@ export async function POST(request: Request) {
     )
       .bind(challenge.id)
       .run();
+    await recordSecurityEvent(request, {
+      eventType: "auth.whatsapp.invalid_code",
+      severity: "warning",
+      metadata: { challengeId: challenge.id },
+    });
     const remaining = Math.max(0, MAX_ATTEMPTS - challenge.attempts - 1);
     return reject(
       remaining
@@ -116,47 +136,20 @@ export async function POST(request: Request) {
     identity = { user_id: userId, onboarding_complete: 0 };
   }
 
-  const rawToken = createSessionToken();
-  statements.push(
-    env.DB.prepare(
-      `INSERT INTO auth_sessions
-        (id, user_id, token_hash, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      identity.user_id,
-      await hashValue(rawToken),
-      now + SESSION_MAX_AGE_SECONDS * 1000,
-      now,
-    ),
-    env.DB.prepare(
-      "DELETE FROM auth_sessions WHERE expires_at <= ?",
-    ).bind(now),
-  );
-
   await env.DB.batch(statements);
+  const session = await createSession(identity.user_id);
+  await recordSecurityEvent(request, {
+    eventType: "auth.login.success",
+    userId: identity.user_id,
+    metadata: { provider: "whatsapp" },
+  });
 
   const redirectTo = identity.onboarding_complete
     ? returnTo
     : "/onboarding";
-  const response = Response.json({ redirectTo });
-  response.headers.append(
-    "set-cookie",
-    `${SESSION_COOKIE}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SECONDS}`,
-  );
+  const response = secureJson({ redirectTo });
+  response.headers.append("set-cookie", session.cookie);
   return response;
-}
-
-function createSessionToken(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return base64Url(bytes);
-}
-
-function base64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function constantTimeEqual(first: string, second: string): boolean {
@@ -169,5 +162,5 @@ function constantTimeEqual(first: string, second: string): boolean {
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }

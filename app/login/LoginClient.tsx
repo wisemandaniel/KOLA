@@ -18,16 +18,22 @@ type Step = "phone" | "code";
 export default function LoginClient({
   returnTo,
   whatsappReady,
+  googleReady,
+  facebookReady,
+  initialError,
 }: {
   returnTo: string;
   whatsappReady: boolean;
+  googleReady: boolean;
+  facebookReady: boolean;
+  initialError: string;
 }) {
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [maskedPhone, setMaskedPhone] = useState("");
   const [code, setCode] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
   const [busy, setBusy] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const codeRef = useRef<HTMLInputElement>(null);
@@ -138,7 +144,35 @@ export default function LoginClient({
           </div>
 
           {step === "phone" ? (
-            <form className="auth-form" onSubmit={requestCode}>
+            <>
+              <div className="social-auth-grid">
+                <a
+                  className={!googleReady ? "disabled" : ""}
+                  href={
+                    googleReady
+                      ? `/api/auth/oauth/google/start?return_to=${encodeURIComponent(returnTo)}`
+                      : undefined
+                  }
+                  aria-disabled={!googleReady}
+                >
+                  <span className="google-mark">G</span>
+                  {googleReady ? "Continue with Google" : "Google activation pending"}
+                </a>
+                <a
+                  className={!facebookReady ? "disabled" : ""}
+                  href={
+                    facebookReady
+                      ? `/api/auth/oauth/facebook/start?return_to=${encodeURIComponent(returnTo)}`
+                      : undefined
+                  }
+                  aria-disabled={!facebookReady}
+                >
+                  <span className="facebook-mark">f</span>
+                  {facebookReady ? "Continue with Facebook" : "Facebook activation pending"}
+                </a>
+              </div>
+              <div className="auth-divider"><span>or use WhatsApp</span></div>
+              <form className="auth-form" onSubmit={requestCode}>
               <label htmlFor="phone">WhatsApp number</label>
               <div className="auth-phone-field">
                 <span>
@@ -177,7 +211,8 @@ export default function LoginClient({
                     : "WhatsApp sign-in coming online"}
                 {!busy && whatsappReady && <ArrowRight />}
               </button>
-            </form>
+              </form>
+            </>
           ) : (
             <form className="auth-form" onSubmit={verifyCode}>
               <label htmlFor="code">Verification code</label>
@@ -221,8 +256,8 @@ export default function LoginClient({
             </form>
           )}
           <p className="auth-legal">
-            By continuing, you agree to Kola&apos;s Terms and acknowledge our Privacy
-            Policy.
+            By continuing, you agree to Kola&apos;s <Link href="/legal/terms">Terms</Link>{" "}
+            and acknowledge our <Link href="/legal/privacy">Privacy Policy</Link>.
           </p>
         </section>
 

@@ -1,5 +1,16 @@
 import { env } from "cloudflare:workers";
 import { getAuthenticatedUser } from "../../auth";
+import {
+  fetchMtnPaymentStatus,
+  integrationReadiness,
+  PaymentProvider,
+  startPayment,
+} from "../../integrations";
+import {
+  enforceRateLimit,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../security";
 
 export const dynamic = "force-dynamic";
 
@@ -168,7 +179,6 @@ export async function GET() {
     };
   }
 
-  const runtime = env as unknown as Record<string, unknown>;
   return Response.json({
     profile: {
       displayName: actor.display_name,
@@ -188,21 +198,23 @@ export async function GET() {
     promotions: promotions.results,
     analytics,
     admin,
-    integrations: {
-      cash: true,
-      mtnMomo: Boolean(runtime.MTN_MOMO_SUBSCRIPTION_KEY),
-      orangeMoney: Boolean(runtime.ORANGE_MONEY_CLIENT_ID),
-      google: Boolean(runtime.GOOGLE_CLIENT_ID),
-      facebook: Boolean(runtime.FACEBOOK_APP_ID),
-      push: Boolean(runtime.WEB_PUSH_PUBLIC_KEY),
-      maps: Boolean(runtime.MAPS_API_KEY),
-    },
+    integrations: integrationReadiness(),
   });
 }
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   const actor = await requireActor();
   if (!actor) return reject("Authentication required", 401);
+  const limited = await enforceRateLimit({
+    request,
+    scope: "platform.action.user",
+    subject: actor.id,
+    limit: 80,
+    windowSeconds: 60,
+  });
+  if (limited) return limited;
   let body: Row;
   try {
     body = (await request.json()) as Row;
@@ -361,7 +373,7 @@ export async function POST(request: Request) {
     if (Number(actor.is_admin) && String(ticket.user_id) !== actor.id) {
       statements.push(
         env.DB.prepare(
-          `INSERT INTO notifications (id,user_id,type,title,body,link,created_at)
+          `INSERT INTO notifications (id,user_id,type,title,body,href,created_at)
            VALUES (?,?,?,?,?,?,?)`,
         ).bind(
           crypto.randomUUID(),
@@ -464,35 +476,134 @@ export async function POST(request: Request) {
       .first<Row>();
     if (!order) return reject("Order not found.", 404);
     if (order.payment_status === "paid") return reject("This order is already paid.", 409);
-    const runtime = env as unknown as Record<string, unknown>;
+    const phone = String(body.phone ?? actor.phone ?? "");
+    if (!/^(?:\+?237)?6\d{8}$/.test(phone.replace(/[\s()-]/g, ""))) {
+      return reject("Enter a valid Cameroon mobile number.");
+    }
+    const readiness = integrationReadiness();
     const enabled =
-      provider === "mtn_momo"
-        ? Boolean(runtime.MTN_MOMO_SUBSCRIPTION_KEY)
-        : Boolean(runtime.ORANGE_MONEY_CLIENT_ID);
+      provider === "mtn_momo" ? readiness.mtnMomo : readiness.orangeMoney;
     const id = crypto.randomUUID();
     await env.DB.prepare(
       `INSERT INTO payment_attempts
         (id,order_id,user_id,provider,phone,amount,status,failure_reason,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?, ?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
     )
       .bind(
         id,
         orderId,
         actor.id,
         provider,
-        String(body.phone ?? actor.phone ?? ""),
+        phone,
         order.total,
-        enabled ? "awaiting_provider" : "configuration_required",
+        enabled ? "initiating" : "configuration_required",
         enabled ? null : "Provider credentials are not configured.",
         now,
         now,
       )
       .run();
-    return Response.json({
-      id,
-      status: enabled ? "awaiting_provider" : "configuration_required",
-      activationRequired: !enabled,
-    });
+    if (!enabled) {
+      return secureJson({
+        id,
+        status: "configuration_required",
+        activationRequired: true,
+      });
+    }
+    try {
+      const payment = await startPayment({
+        provider: provider as PaymentProvider,
+        orderId,
+        amount: Number(order.total),
+        phone,
+        origin: new URL(request.url).origin,
+      });
+      await env.DB.prepare(
+        `UPDATE payment_attempts
+         SET status=?,provider_reference=?,failure_reason=NULL,updated_at=? WHERE id=?`,
+      )
+        .bind(payment.status, payment.providerReference, Date.now(), id)
+        .run();
+      await writeAudit(actor.id, "payment.requested", "order", orderId, {
+        provider,
+        attemptId: id,
+      });
+      return secureJson({
+        id,
+        status: payment.status,
+        checkoutUrl: payment.checkoutUrl,
+        activationRequired: false,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Payment provider request failed.";
+      await env.DB.prepare(
+        "UPDATE payment_attempts SET status='failed',failure_reason=?,updated_at=? WHERE id=?",
+      )
+        .bind(message.slice(0, 500), Date.now(), id)
+        .run();
+      return reject(message, 502);
+    }
+  }
+
+  if (action === "payment_status") {
+    const attemptId = String(body.id ?? "");
+    const attempt = await env.DB.prepare(
+      `SELECT pa.*,o.customer_id FROM payment_attempts pa
+       JOIN orders o ON o.id=pa.order_id
+       WHERE pa.id=? AND (pa.user_id=? OR ?=1) LIMIT 1`,
+    )
+      .bind(attemptId, actor.id, Number(actor.is_admin))
+      .first<Row>();
+    if (!attempt) return reject("Payment attempt not found.", 404);
+    if (attempt.provider !== "mtn_momo" || !attempt.provider_reference) {
+      return secureJson({ status: attempt.status });
+    }
+    try {
+      const providerStatus = await fetchMtnPaymentStatus(
+        String(attempt.provider_reference),
+      );
+      await env.DB.prepare(
+        "UPDATE payment_attempts SET status=?,failure_reason=?,updated_at=? WHERE id=?",
+      )
+        .bind(
+          providerStatus.status,
+          providerStatus.reason ?? null,
+          Date.now(),
+          attemptId,
+        )
+        .run();
+      if (providerStatus.status === "paid") {
+        await env.DB.batch([
+          env.DB.prepare(
+            "UPDATE orders SET payment_status='paid',updated_at=? WHERE id=?",
+          ).bind(Date.now(), attempt.order_id),
+          env.DB.prepare(
+            `INSERT INTO payments
+              (id,order_id,provider,amount,status,provider_reference,created_at)
+             SELECT ?,?,?,?,?,?,?
+             WHERE NOT EXISTS (
+               SELECT 1 FROM payments WHERE order_id=? AND provider_reference=?
+             )`,
+          ).bind(
+            crypto.randomUUID(),
+            attempt.order_id,
+            "mtn_momo",
+            attempt.amount,
+            "paid",
+            attempt.provider_reference,
+            Date.now(),
+            attempt.order_id,
+            attempt.provider_reference,
+          ),
+        ]);
+      }
+      return secureJson({ status: providerStatus.status });
+    } catch (error) {
+      return reject(
+        error instanceof Error ? error.message : "Status check failed.",
+        502,
+      );
+    }
   }
 
   if (action === "admin_ticket_status") {
@@ -538,5 +649,5 @@ export async function POST(request: Request) {
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }

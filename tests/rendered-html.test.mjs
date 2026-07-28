@@ -30,10 +30,36 @@ test("protects WhatsApp verification and persistent sessions", async () => {
   assert.match(requestRoute, /waSenderApiKey/);
   assert.match(requestRoute, /hashValue/);
   assert.match(verifyRoute, /MAX_ATTEMPTS/);
-  assert.match(verifyRoute, /auth_sessions/);
-  assert.match(verifyRoute, /HttpOnly/);
-  assert.match(verifyRoute, /SameSite=Lax/);
+  assert.match(verifyRoute, /createSession/);
+  assert.match(auth, /auth_sessions/);
+  assert.match(auth, /HttpOnly/);
+  assert.match(auth, /SameSite=Lax/);
   assert.match(auth, /safeReturnPath/);
+});
+
+test("hardens checkout, uploads, tracking and external integrations", async () => {
+  const [workspace, fileSecurity, tracking, oauth, integrations, migration] =
+    await Promise.all([
+      source("app/api/workspace/route.ts"),
+      source("app/file-security.ts"),
+      source("app/api/track/[orderId]/route.ts"),
+      source("app/oauth.ts"),
+      source("app/integrations.ts"),
+      source("drizzle/0008_gray_grim_reaper.sql"),
+    ]);
+
+  assert.match(workspace, /idempotency_records/);
+  assert.match(workspace, /stock=stock-\?/);
+  assert.match(workspace, /rejectCrossSiteMutation/);
+  assert.match(fileSecurity, /%PDF-/);
+  assert.match(tracking, /tracking_token = \?/);
+  assert.doesNotMatch(tracking, /orderId === "KL-2084"/);
+  assert.match(oauth, /code_challenge_method/);
+  assert.match(oauth, /oauth_states/);
+  assert.match(integrations, /requesttopay/);
+  assert.match(integrations, /ORANGE_MONEY_MERCHANT_KEY/);
+  assert.match(migration, /CREATE TABLE `rate_limits`/);
+  assert.match(migration, /CREATE TABLE `security_events`/);
 });
 
 test("implements private, optimistic rich order messaging", async () => {

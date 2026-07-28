@@ -1,5 +1,10 @@
 import { env } from "cloudflare:workers";
 import { canAccessOrder, getRequestActor, type RequestActor } from "../../order-access";
+import {
+  enforceRateLimit,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../security";
 
 export const dynamic = "force-dynamic";
 
@@ -77,8 +82,18 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   const actor = await getRequestActor();
   if (!actor) return reject("Authentication required", 401);
+  const limited = await enforceRateLimit({
+    request,
+    scope: "call.signal.user",
+    subject: actor.id,
+    limit: 120,
+    windowSeconds: 10 * 60,
+  });
+  if (limited) return limited;
 
   let body: Record<string, unknown>;
   try {
@@ -251,5 +266,5 @@ function validSignal(value: unknown, maxLength: number): string | null {
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }

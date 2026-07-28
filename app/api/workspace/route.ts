@@ -1,5 +1,10 @@
 import { env } from "cloudflare:workers";
 import { getAuthenticatedUser } from "../../auth";
+import {
+  enforceRateLimit,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../security";
 
 export const dynamic = "force-dynamic";
 type Row = Record<string, unknown>;
@@ -12,7 +17,7 @@ async function requireActor() {
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }
 
 async function ownedVendor(userId: string) {
@@ -101,9 +106,24 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   const actor = await requireActor();
   if (!actor) return reject("Authentication required", 401);
-  const body = await request.json() as Record<string, unknown>;
+  const limited = await enforceRateLimit({
+    request,
+    scope: "workspace.action.user",
+    subject: String(actor.id),
+    limit: 120,
+    windowSeconds: 60,
+  });
+  if (limited) return limited;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json() as Record<string, unknown>;
+  } catch {
+    return reject("The request could not be read.");
+  }
   const action = String(body.action ?? ""); const role = String(actor.active_role); const userId = String(actor.id); const now = Date.now(); const db = env.DB;
 
   if (action === "complete_onboarding") {
@@ -190,6 +210,14 @@ export async function POST(request: Request) {
 
   if (action === "create_order") {
     if (role !== "customer") return reject("Customer account required", 403);
+    const orderLimited = await enforceRateLimit({
+      request,
+      scope: "order.create.user",
+      subject: userId,
+      limit: 10,
+      windowSeconds: 60,
+    });
+    if (orderLimited) return orderLimited;
     const requested = Array.isArray(body.items) ? body.items as Row[] : [];
     if (!requested.length) return reject("Your cart is empty");
     const verified: { id:string;name:string;price:number;quantity:number;vendorId:string }[] = [];
@@ -204,6 +232,54 @@ export async function POST(request: Request) {
     const deliveryLat = body.latitude == null ? null : Number(body.latitude);
     const deliveryLng = body.longitude == null ? null : Number(body.longitude);
     const promotionCode = String(body.promotionCode ?? "").trim().toUpperCase();
+    const idempotencyKey = String(body.idempotencyKey ?? "").trim();
+    if (!/^[a-zA-Z0-9_-]{16,100}$/.test(idempotencyKey)) {
+      return reject("A valid checkout request key is required.");
+    }
+    const previous = await db.prepare(
+      `SELECT status,response_json FROM idempotency_records
+       WHERE user_id=? AND scope='order.create' AND request_key=? LIMIT 1`,
+    ).bind(userId,idempotencyKey).first<Row>();
+    if (previous?.status === "completed" && previous.response_json) {
+      return secureJson(JSON.parse(String(previous.response_json)));
+    }
+    if (previous) {
+      return reject("This checkout is already being processed.", 409);
+    }
+    const idempotencyId = crypto.randomUUID();
+    const idempotencyInsert = await db.prepare(
+      `INSERT OR IGNORE INTO idempotency_records
+        (id,user_id,scope,request_key,status,expires_at,created_at,updated_at)
+       VALUES (?,?, 'order.create',?,'processing',?,?,?)`,
+    ).bind(idempotencyId,userId,idempotencyKey,now+24*60*60*1000,now,now).run();
+    if (!idempotencyInsert.meta.changes) {
+      const concurrent = await db.prepare(
+        `SELECT status,response_json FROM idempotency_records
+         WHERE user_id=? AND scope='order.create' AND request_key=? LIMIT 1`,
+      ).bind(userId,idempotencyKey).first<Row>();
+      if (concurrent?.status === "completed" && concurrent.response_json) {
+        return secureJson(JSON.parse(String(concurrent.response_json)));
+      }
+      return reject("This checkout is already being processed.",409);
+    }
+
+    const reserved: typeof verified = [];
+    for (const item of verified) {
+      const reservation = await db.prepare(
+        "UPDATE products SET stock=stock-?,updated_at=? WHERE id=? AND stock>=?",
+      ).bind(item.quantity,now,item.id,item.quantity).run();
+      if (!reservation.meta.changes) {
+        if (reserved.length) {
+          await db.batch(reserved.map((held) => db.prepare(
+            "UPDATE products SET stock=stock+?,updated_at=? WHERE id=?",
+          ).bind(held.quantity,Date.now(),held.id)));
+        }
+        await db.prepare("DELETE FROM idempotency_records WHERE id=?")
+          .bind(idempotencyId).run();
+        return reject(`${item.name} just sold out. Review your cart and try again.`,409);
+      }
+      reserved.push(item);
+    }
     const groups = new Map<string, typeof verified>();
     for (const item of verified) {
       groups.set(item.vendorId, [...(groups.get(item.vendorId) ?? []), item]);
@@ -215,7 +291,14 @@ export async function POST(request: Request) {
       const vendor = await db.prepare(
         "SELECT id,owner_id,address,city FROM vendors WHERE id=? AND status='active'",
       ).bind(vendorId).first<Row>();
-      if (!vendor) return reject("A selected store is unavailable.");
+      if (!vendor) {
+        await db.batch(reserved.map((held) => db.prepare(
+          "UPDATE products SET stock=stock+?,updated_at=? WHERE id=?",
+        ).bind(held.quantity,Date.now(),held.id)));
+        await db.prepare("DELETE FROM idempotency_records WHERE id=?")
+          .bind(idempotencyId).run();
+        return reject("A selected store is unavailable.");
+      }
       const subtotal = items.reduce((sum,item)=>sum+item.price*item.quantity,0);
       let discount = 0;
       let appliedCode: string | null = null;
@@ -263,8 +346,6 @@ export async function POST(request: Request) {
         statements.push(
           db.prepare("INSERT INTO order_items (id,order_id,product_id,name,quantity,unit_price) VALUES (?,?,?,?,?,?)")
             .bind(crypto.randomUUID(),id,item.id,item.name,item.quantity,item.price),
-          db.prepare("UPDATE products SET stock=stock-?,updated_at=? WHERE id=? AND stock>=?")
-            .bind(item.quantity,now,item.id,item.quantity),
         );
       }
       if (promotionId) {
@@ -274,14 +355,28 @@ export async function POST(request: Request) {
       }
       created.push({id,total,trackingToken,vendorId});
     }
-    await db.batch(statements);
-    return Response.json({
+    try {
+      await db.batch(statements);
+    } catch (error) {
+      await db.batch(reserved.map((held) => db.prepare(
+        "UPDATE products SET stock=stock+?,updated_at=? WHERE id=?",
+      ).bind(held.quantity,Date.now(),held.id)));
+      await db.prepare("DELETE FROM idempotency_records WHERE id=?")
+        .bind(idempotencyId).run();
+      throw error;
+    }
+    const responseBody = {
       id:created[0].id,
       ids:created.map(order=>order.id),
       total:created.reduce((sum,order)=>sum+order.total,0),
       orders:created,
       split:created.length>1,
-    });
+    };
+    await db.prepare(
+      `UPDATE idempotency_records SET status='completed',response_json=?,updated_at=?
+       WHERE id=?`,
+    ).bind(JSON.stringify(responseBody),Date.now(),idempotencyId).run();
+    return secureJson(responseBody);
   }
 
   if (action === "update_order") {

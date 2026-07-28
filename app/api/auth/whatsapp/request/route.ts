@@ -1,5 +1,11 @@
 import { env } from "cloudflare:workers";
 import { hashValue, readRuntimeAuthConfig } from "../../../../auth";
+import {
+  enforceRateLimit,
+  recordSecurityEvent,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../../../security";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +18,16 @@ type RequestBody = {
 };
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
+  const limited = await enforceRateLimit({
+    request,
+    scope: "auth.whatsapp.request.ip",
+    limit: 8,
+    windowSeconds: 60 * 60,
+  });
+  if (limited) return limited;
+
   let body: RequestBody;
   try {
     body = (await request.json()) as RequestBody;
@@ -69,13 +85,18 @@ export async function POST(request: Request) {
       .bind(challengeId)
       .run();
     console.error("WhatsApp verification send failed", sendResult.error);
+    await recordSecurityEvent(request, {
+      eventType: "auth.whatsapp.delivery_failed",
+      severity: "warning",
+      metadata: { provider: "wasender" },
+    });
     return reject(
       "We could not send a WhatsApp code right now. Please try again shortly.",
       502,
     );
   }
 
-  return Response.json({
+  return secureJson({
     challengeId,
     expiresIn: CHALLENGE_TTL_MS / 1000,
     maskedPhone: maskPhone(phone),
@@ -135,5 +156,5 @@ async function sendWhatsAppCode(input: {
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }

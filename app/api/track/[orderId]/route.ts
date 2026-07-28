@@ -4,9 +4,36 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_: Request, context: { params: Promise<{ orderId: string }> }) {
   const { orderId } = await context.params;
-  const deliveryLookup = orderId === "KL-2084"
-    ? await env.DB.prepare("SELECT * FROM deliveries WHERE order_id = ?").bind(orderId).first()
-    : await env.DB.prepare("SELECT * FROM deliveries WHERE tracking_token = ?").bind(orderId).first();
+  if (orderId === "demo") {
+    const now = Date.now();
+    return Response.json({
+      order: {
+        id: "KL-2084",
+        status: "on_the_way",
+        delivery_address: "Bonapriso, Douala",
+      },
+      delivery: {
+        status: "on_the_way",
+        pickup_address: "Akwa, Douala",
+        dropoff_address: "Bonapriso, Douala",
+        distance_km: 2.4,
+        estimated_arrival: now + 12 * 60 * 1000,
+        location_updated_at: now,
+      },
+      events: [
+        { event_type: "accepted", label: "Order accepted", created_at: now - 35 * 60 * 1000 },
+        { event_type: "preparing", label: "Vendor prepared order", created_at: now - 24 * 60 * 1000 },
+        { event_type: "picked_up", label: "Rider picked up order", created_at: now - 9 * 60 * 1000 },
+        { event_type: "on_the_way", label: "Delivery is on the way", created_at: now - 8 * 60 * 1000 },
+      ],
+      vendor: { name: "Maison Kawa" },
+      courier: { name: "Brice N.", rating: 4.9, vehicle: "Motorcycle" },
+      demo: true,
+    }, { headers: { "cache-control": "public, max-age=30" } });
+  }
+  const deliveryLookup = await env.DB.prepare(
+    "SELECT * FROM deliveries WHERE tracking_token = ?",
+  ).bind(orderId).first();
   if (!deliveryLookup) return Response.json({ error: "Order not found" }, { status: 404 });
   const order = await env.DB.prepare("SELECT id,status,total,delivery_address,delivery_lat,delivery_lng,created_at,updated_at FROM orders WHERE id = ?").bind(deliveryLookup.order_id).first();
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });

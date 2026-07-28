@@ -78,7 +78,7 @@ export default function DashboardClient(){
   const placeOrder=async(address:string,promotionCode="",coordinates?:{latitude:number;longitude:number})=>{
     const items=[...cart.entries()].map(([id,quantity])=>({id,quantity}));
     setBusy(true);
-    try{const result=await api("create_order",{items,address,promotionCode,...coordinates,notes:"Call on arrival"});setCart(new Map());setPanel(null);showNotice(result.split?`${result.ids.length} store orders placed`:`Order ${result.id} placed`);await refresh()}
+    try{const result=await api("create_order",{items,address,promotionCode,...coordinates,notes:"Call on arrival",idempotencyKey:crypto.randomUUID()});setCart(new Map());setPanel(null);showNotice(result.split?`${result.ids.length} store orders placed`:`Order ${result.id} placed`);await refresh()}
     catch(error){showNotice(error instanceof Error?error.message:"Could not place order")}finally{setBusy(false)}
   };
   const updateOrder=async(orderId:string,status:string)=>{setBusy(true);try{await api("update_order",{orderId,status});showNotice(`Order marked ${status}`);await refresh()}catch(error){showNotice(error instanceof Error?error.message:"Update failed")}finally{setBusy(false)}};

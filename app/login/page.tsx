@@ -6,13 +6,14 @@ import {
   safeReturnPath,
 } from "../auth";
 import LoginClient from "./LoginClient";
+import { oauthProviderReady } from "../oauth";
 
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ return_to?: string }>;
+  searchParams: Promise<{ return_to?: string; auth_error?: string }>;
 }) {
   const params = await searchParams;
   const returnTo = safeReturnPath(params.return_to, "/dashboard");
@@ -32,5 +33,13 @@ export default async function LoginPage({
     authConfig.sessionSecret && authConfig.waSenderApiKey,
   );
 
-  return <LoginClient returnTo={returnTo} whatsappReady={whatsappReady} />;
+  return (
+    <LoginClient
+      returnTo={returnTo}
+      whatsappReady={whatsappReady}
+      googleReady={oauthProviderReady("google")}
+      facebookReady={oauthProviderReady("facebook")}
+      initialError={String(params.auth_error ?? "").slice(0, 180)}
+    />
+  );
 }

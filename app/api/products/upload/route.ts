@@ -1,5 +1,11 @@
 import { env } from "cloudflare:workers";
 import { getRequestActor } from "../../../order-access";
+import { matchesDeclaredFileType } from "../../../file-security";
+import {
+  enforceRateLimit,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../../security";
 
 export const dynamic = "force-dynamic";
 
@@ -7,9 +13,19 @@ const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   const actor = await getRequestActor();
   if (!actor) return reject("Authentication required", 401);
   if (actor.role !== "vendor") return reject("Vendor account required", 403);
+  const limited = await enforceRateLimit({
+    request,
+    scope: "product.upload.user",
+    subject: actor.id,
+    limit: 20,
+    windowSeconds: 10 * 60,
+  });
+  if (limited) return limited;
 
   const form = await request.formData();
   const productId = String(form.get("productId") ?? "");
@@ -18,6 +34,9 @@ export async function POST(request: Request) {
   const contentType = file.type.split(";")[0].toLowerCase();
   if (!IMAGE_TYPES.has(contentType) || !file.size || file.size > MAX_IMAGE_BYTES) {
     return reject("Use a JPG, PNG, or WebP image smaller than 8 MB.", 413);
+  }
+  if (!(await matchesDeclaredFileType(file, contentType))) {
+    return reject("The image contents do not match its file type.", 415);
   }
 
   const product = await env.DB.prepare(
@@ -43,5 +62,5 @@ export async function POST(request: Request) {
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }

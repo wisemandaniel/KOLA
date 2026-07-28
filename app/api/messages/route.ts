@@ -1,5 +1,10 @@
 import { env } from "cloudflare:workers";
 import { canAccessOrder, getRequestActor } from "../../order-access";
+import {
+  enforceRateLimit,
+  rejectCrossSiteMutation,
+  secureJson,
+} from "../../security";
 
 export const dynamic = "force-dynamic";
 
@@ -66,8 +71,18 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   const actor = await getRequestActor();
   if (!actor) return reject("Authentication required", 401);
+  const limited = await enforceRateLimit({
+    request,
+    scope: "message.send.user",
+    subject: actor.id,
+    limit: 90,
+    windowSeconds: 60,
+  });
+  if (limited) return limited;
 
   let input: Record<string, unknown>;
   try {
@@ -159,7 +174,7 @@ function messageNotification(
   createdAt: number,
 ) {
   return env.DB.prepare(
-    `INSERT INTO notifications (id,user_id,type,title,body,link,created_at)
+    `INSERT INTO notifications (id,user_id,type,title,body,href,created_at)
      SELECT lower(hex(randomblob(16))), participants.user_id, 'message', ?, ?, '/dashboard', ?
      FROM (
        SELECT o.customer_id AS user_id FROM orders o WHERE o.id=?
@@ -182,5 +197,5 @@ function messageNotification(
 }
 
 function reject(message: string, status = 400) {
-  return Response.json({ error: message }, { status });
+  return secureJson({ error: message }, status);
 }

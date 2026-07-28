@@ -34,7 +34,7 @@ export default async function LandingPage() {
           <a href="#pricing">Pricing</a>
         </nav>
         <div>
-          <Link className="quiet-link" href="/track/KL-2084">Track an order</Link>
+          <Link className="quiet-link" href="/track/demo">Track an order</Link>
           <Link className="outline-button" href={start}>Log in</Link>
           <Link className="blue-button" href={start}>Start free</Link>
         </div>
@@ -55,7 +55,7 @@ export default async function LandingPage() {
             <Link className="blue-button large" href={start}>
               Start for free <ArrowRight size={17} />
             </Link>
-            <Link className="quiet-link" href="/track/KL-2084">
+            <Link className="quiet-link" href="/track/demo">
               See live tracking <ArrowRight size={15} />
             </Link>
           </div>
@@ -118,7 +118,7 @@ export default async function LandingPage() {
             <li><MessageCircle />A shared order conversation</li>
             <li><Truck />Clear pickup and delivery confirmation</li>
           </ul>
-          <Link className="white-button" href="/track/KL-2084">
+          <Link className="white-button" href="/track/demo">
             Open live tracking <ArrowRight size={16} />
           </Link>
         </div>
@@ -211,8 +211,10 @@ export default async function LandingPage() {
         <Link className="pro-logo" href="/"><span>k</span>kola</Link>
         <p>Online commerce and local delivery for Cameroon.</p>
         <nav>
-          <Link href="/track/KL-2084">Track order</Link>
+          <Link href="/track/demo">Track order</Link>
           <a href="#pricing">Pricing</a>
+          <Link href="/legal/terms">Terms</Link>
+          <Link href="/legal/privacy">Privacy</Link>
           <Link href={start}>Log in</Link>
         </nav>
       </footer>

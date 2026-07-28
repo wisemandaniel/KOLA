@@ -270,8 +270,11 @@ export function PaymentCenter({
       });
       if (result.activationRequired) {
         onNotice("Payment provider activation is required before collection can begin.");
+      } else if (typeof result.checkoutUrl === "string" && result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return;
       } else {
-        onNotice("Payment request created.");
+        onNotice("Payment request sent. Approve it on your phone.");
       }
       await refresh();
     } catch (error) {
@@ -357,6 +360,27 @@ export function PaymentCenter({
               </div>
               <strong>{Number(attempt.amount).toLocaleString()} FCFA</strong>
               <em>{String(attempt.status).replaceAll("_", " ")}</em>
+              {String(attempt.provider) === "mtn_momo" &&
+                ["pending_provider", "initiating"].includes(String(attempt.status)) && (
+                  <button
+                    className="secondary-button small"
+                    onClick={async () => {
+                      try {
+                        const result = await platformAction("payment_status", {
+                          id: attempt.id,
+                        });
+                        onNotice(`Payment is ${String(result.status).replaceAll("_", " ")}.`);
+                        await refresh();
+                      } catch (error) {
+                        onNotice(
+                          error instanceof Error ? error.message : "Status check failed.",
+                        );
+                      }
+                    }}
+                  >
+                    Refresh
+                  </button>
+                )}
             </article>
           ))
         ) : (
@@ -659,7 +683,8 @@ function IntegrationPanel({ integrations }: { integrations: Record<string, boole
     ["Google sign-in", "google", "OAuth credentials"],
     ["Facebook sign-in", "facebook", "OAuth credentials"],
     ["Push notifications", "push", "Web Push credentials"],
-    ["Maps and routing", "maps", "Maps provider key"],
+    ["OpenStreetMap tracking", "maps", "Map rendering"],
+    ["Route optimisation", "routeOptimization", "Routing provider key"],
   ];
   return (
     <>
@@ -680,6 +705,10 @@ function AdminPanel({ data, busy, run }: { data: Row; busy: boolean; run: (actio
   return (
     <>
       <PanelHeading title="Administration" text="Protected operational oversight for authorised Kola administrators." />
+      <div className="admin-export-row">
+        <div><b>Business data export</b><p>Download a protected operational snapshot for backup and reconciliation.</p></div>
+        <a className="secondary-button small" href="/api/admin/export">Download JSON</a>
+      </div>
       <div className="platform-metrics admin">{cards.map(([label, value]) => <article key={String(label)}><span>{String(label)}</span><b>{String(value ?? 0)}</b></article>)}</div>
       <div className="admin-ticket-list">
         <h3>Recent support tickets</h3>

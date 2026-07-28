@@ -41,7 +41,44 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, env, ctx);
+    const response = await handler.fetch(request, env, ctx);
+    const headers = new Headers(response.headers);
+    headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
+    headers.set("x-content-type-options", "nosniff");
+    headers.set("x-frame-options", "DENY");
+    headers.set("referrer-policy", "strict-origin-when-cross-origin");
+    headers.set(
+      "permissions-policy",
+      "camera=(), microphone=(self), geolocation=(self), payment=(self)",
+    );
+    headers.set("x-request-id", request.headers.get("cf-ray") ?? crypto.randomUUID());
+    if (!headers.has("content-security-policy")) {
+      headers.set(
+        "content-security-policy",
+        [
+          "default-src 'self'",
+          "base-uri 'self'",
+          "object-src 'none'",
+          "frame-ancestors 'none'",
+          "form-action 'self'",
+          "script-src 'self' 'unsafe-inline'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: blob:",
+          "font-src 'self' data:",
+          "media-src 'self' blob:",
+          "connect-src 'self'",
+          "frame-src https://www.openstreetmap.org",
+          "worker-src 'self' blob:",
+          "manifest-src 'self'",
+          "upgrade-insecure-requests",
+        ].join("; "),
+      );
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   },
 };
 
