@@ -29,9 +29,7 @@ export default async function LoginPage({
 
   const authConfig = readRuntimeAuthConfig();
   const whatsappReady = Boolean(
-    authConfig.sessionSecret &&
-      authConfig.accessToken &&
-      authConfig.phoneNumberId,
+    authConfig.sessionSecret && authConfig.waSenderApiKey,
   );
 
   return <LoginClient returnTo={returnTo} whatsappReady={whatsappReady} />;

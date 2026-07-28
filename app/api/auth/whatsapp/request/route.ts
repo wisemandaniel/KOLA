@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   if (!phone) return reject("Enter a valid Cameroon mobile number.");
 
   const config = readRuntimeAuthConfig();
-  if (!config.sessionSecret || !config.accessToken || !config.phoneNumberId) {
+  if (!config.sessionSecret || !config.waSenderApiKey) {
     return reject(
       "WhatsApp verification is being connected. Sign-in will be available once activation is complete.",
       503,
@@ -59,11 +59,7 @@ export async function POST(request: Request) {
     .run();
 
   const sendResult = await sendWhatsAppCode({
-    accessToken: config.accessToken,
-    graphVersion: config.graphVersion,
-    phoneNumberId: config.phoneNumberId,
-    templateLanguage: config.templateLanguage,
-    templateName: config.templateName,
+    apiKey: config.waSenderApiKey,
     phone,
     code,
   });
@@ -106,49 +102,36 @@ function maskPhone(phone: string): string {
 }
 
 async function sendWhatsAppCode(input: {
-  accessToken: string;
-  graphVersion: string;
-  phoneNumberId: string;
-  templateLanguage: string;
-  templateName: string;
+  apiKey: string;
   phone: string;
   code: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const response = await fetch(
-    `https://graph.facebook.com/${input.graphVersion}/${input.phoneNumberId}/messages`,
+    "https://www.wasenderapi.com/api/send-message",
     {
       method: "POST",
       headers: {
-        authorization: `Bearer ${input.accessToken}`,
+        authorization: `Bearer ${input.apiKey}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: input.phone.slice(1),
-        type: "template",
-        template: {
-          name: input.templateName,
-          language: { code: input.templateLanguage },
-          components: [
-            {
-              type: "body",
-              parameters: [{ type: "text", text: input.code }],
-            },
-            {
-              type: "button",
-              sub_type: "url",
-              index: "0",
-              parameters: [{ type: "text", text: input.code }],
-            },
-          ],
-        },
+        to: input.phone,
+        text: `Your Kola verification code is ${input.code}.\n\nIt expires in 10 minutes. Do not share this code with anyone.`,
       }),
     },
   );
 
-  if (response.ok) return { ok: true };
-  return { ok: false, error: await response.text() };
+  const responseText = await response.text();
+  if (!response.ok) return { ok: false, error: responseText };
+
+  try {
+    const result = JSON.parse(responseText) as { success?: boolean };
+    return result.success
+      ? { ok: true }
+      : { ok: false, error: responseText };
+  } catch {
+    return { ok: false, error: "WaSender API returned an invalid response." };
+  }
 }
 
 function reject(message: string, status = 400) {

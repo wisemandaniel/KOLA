@@ -88,12 +88,7 @@ export function readRuntimeAuthConfig() {
   const runtime = env as unknown as Record<string, string | D1Database | undefined>;
   return {
     sessionSecret: stringValue(runtime.AUTH_SESSION_SECRET),
-    accessToken: stringValue(runtime.WHATSAPP_ACCESS_TOKEN),
-    phoneNumberId: stringValue(runtime.WHATSAPP_PHONE_NUMBER_ID),
-    templateName: stringValue(runtime.WHATSAPP_AUTH_TEMPLATE) ?? "kola_login_code",
-    templateLanguage:
-      stringValue(runtime.WHATSAPP_TEMPLATE_LANGUAGE) ?? "en_US",
-    graphVersion: stringValue(runtime.WHATSAPP_GRAPH_VERSION) ?? "v23.0",
+    waSenderApiKey: stringValue(runtime.WASENDER_API_KEY),
   };
 }
 
