@@ -28,8 +28,10 @@ export function sites(): Plugin {
       const outputDirectory = resolve(root, "dist", ".openai");
       const hostingConfig = resolve(root, ".openai", "hosting.json");
       const drizzleSource = resolve(root, "drizzle");
+      const unusedSocialCard = resolve(root, "dist", "client", "og.png");
 
       await rm(outputDirectory, { recursive: true, force: true });
+      await rm(unusedSocialCard, { force: true });
       await mkdir(outputDirectory, { recursive: true });
 
       if (await exists(hostingConfig)) {
