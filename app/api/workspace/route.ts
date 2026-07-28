@@ -31,6 +31,7 @@ export async function GET() {
   if (!actor) return reject("Authentication required", 401);
   const db = env.DB;
   const role = String(actor.active_role);
+  const actorId = String(actor.id);
   let orders; let deliveries;
   if (role === "vendor") {
     const vendor = await ownedVendor(String(actor.id));
@@ -53,6 +54,15 @@ export async function GET() {
       UNION SELECT order_id FROM deliveries WHERE courier_id=?
     ) ORDER BY m.created_at ASC LIMIT 500`).bind(actor.id, actor.id, actor.id),
   ]);
+  await db.prepare(`INSERT OR IGNORE INTO message_receipts
+    (id, message_id, user_id, delivered_at, read_at)
+    SELECT lower(hex(randomblob(16))), m.id, ?, ?, NULL
+    FROM messages m
+    WHERE m.sender_id != ? AND m.order_id IN (
+      SELECT id FROM orders WHERE customer_id=?
+      UNION SELECT o.id FROM orders o JOIN vendors v ON o.vendor_id=v.id WHERE v.owner_id=?
+      UNION SELECT order_id FROM deliveries WHERE courier_id=?
+    )`).bind(actorId, Date.now(), actorId, actorId, actorId, actorId).run();
   return Response.json({
     actor: { id: actor.id, email: actor.email, displayName: actor.display_name, activeRole: role, language: actor.language, city: actor.city, onboardingComplete: !!actor.onboarding_complete, authProvider: actor._auth_provider },
     products: products.results, vendors: vendors.results, orders: orders.results, deliveries: deliveries.results, messages: messages.results, addresses: addresses.results,

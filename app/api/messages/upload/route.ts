@@ -54,14 +54,36 @@ export async function POST(request: Request) {
   const mediaBucket = (env as unknown as { MEDIA?: R2Bucket }).MEDIA;
   if (!mediaBucket) return reject("Media storage is temporarily unavailable.", 503);
 
-  const messageId = crypto.randomUUID();
+  const requestedId = String(form.get("clientMessageId") ?? "").trim();
+  const messageId = /^[a-zA-Z0-9_-]{8,100}$/.test(requestedId)
+    ? requestedId
+    : crypto.randomUUID();
+  const existing = await env.DB.prepare(
+    "SELECT id, order_id, sender_id, message_type, created_at FROM messages WHERE id = ? LIMIT 1",
+  )
+    .bind(messageId)
+    .first<Record<string, unknown>>();
+  if (existing) {
+    if (
+      String(existing.order_id) !== orderId ||
+      String(existing.sender_id) !== actor.id
+    ) {
+      return reject("Message identifier conflict.", 409);
+    }
+    return Response.json({
+      id: existing.id,
+      messageType: existing.message_type,
+      createdAt: existing.created_at,
+    });
+  }
   const mediaKey = `order-media/${orderId}/${messageId}`;
   const durationMs = isAudio
     ? Math.max(0, Math.min(5 * 60 * 1000, Number(form.get("durationMs") ?? 0)))
     : null;
   const now = Date.now();
   const messageType = isImage ? "image" : "audio";
-  const body = isImage ? "Photo" : "Voice note";
+  const caption = String(form.get("caption") ?? "").trim().slice(0, 2000);
+  const body = caption || (isImage ? "Photo" : "Voice note");
 
   await mediaBucket.put(mediaKey, file.stream(), {
     httpMetadata: { contentType: file.type },

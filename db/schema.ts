@@ -170,6 +170,17 @@ export const messages = sqliteTable("messages", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const messageReceipts = sqliteTable("message_receipts", {
+  id: text("id").primaryKey(),
+  messageId: text("message_id").notNull(),
+  userId: text("user_id").notNull(),
+  deliveredAt: integer("delivered_at").notNull(),
+  readAt: integer("read_at"),
+}, (table) => [
+  uniqueIndex("message_receipt_message_user_unique").on(table.messageId, table.userId),
+  index("message_receipt_message_idx").on(table.messageId),
+]);
+
 export const voiceCalls = sqliteTable("voice_calls", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
