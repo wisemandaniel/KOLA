@@ -1,5 +1,3 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
 /node_modules
 /.pnp
@@ -13,30 +11,36 @@
 # testing
 /coverage
 
-# next.js
+# framework and generated output
 /.next/
 /.vinext/
 /out/
+/dist/
+/build/
 
-# misc
-.DS_Store
+# Cloudflare and local tooling
+/.wrangler/
+/outputs/
+/work/
+
+# environment and secrets
+.env*
+.dev.vars
 *.pem
 
-# debug
+# logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
+# hosting providers
 .vercel
 
-# typescript
+# operating systems and editors
+.DS_Store
+Thumbs.db
+
+# generated TypeScript declarations
 next-env.d.ts
-/dist/
-/.wrangler/
-/outputs/
-/work/

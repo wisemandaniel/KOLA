@@ -1,98 +1,124 @@
-# vinext-starter
+# Kola
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Kola is a Cameroon-first commerce and logistics platform that brings storefronts, orders, delivery operations, payments, tracking, and customer communication into one workspace.
 
-## Prerequisites
+## Product scope
 
-- Node.js `>=22.13.0`
+Kola supports:
 
-## Quick Start
+- customer storefronts and mobile checkout
+- vendor product, stock, order, and operations management
+- courier assignment, pickup, delivery, and live tracking
+- private order messaging and media uploads
+- WhatsApp OTP authentication
+- Fapshi payment initiation and reconciliation
+- reviews, support workflows, and platform administration
+
+## Technology
+
+- Next.js 16 and React 19
+- TypeScript
+- Tailwind CSS 4
+- vinext and Vite
+- Cloudflare Workers
+- Cloudflare D1
+- Cloudflare R2
+- Drizzle ORM
+
+## Requirements
+
+- Node.js 22.13 or newer
+- npm
+- Cloudflare bindings and runtime secrets for features used locally or in production
+
+## Local development
 
 ```bash
 npm install
 npm run dev
-npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+Build and verify the application:
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm run lint
+npm test
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+The current `test` script performs a production build before running the repository test suite.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## Cloudflare bindings
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+The hosted application expects these bindings:
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+| Binding | Service | Purpose |
+| --- | --- | --- |
+| `DB` | Cloudflare D1 | Application data, sessions, orders, payments, and operations |
+| `MEDIA` | Cloudflare R2 | Private order-chat media |
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+## Runtime secrets and configuration
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+Configure secrets outside Git. Never commit `.env`, `.dev.vars`, API keys, or production credentials.
 
-## Useful Commands
+Core configuration includes:
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+- `AUTH_SESSION_SECRET`
+- `WASENDER_API_KEY`
+- `KOLA_SUPERADMIN_PHONE`
+- `FAPSHI_API_USER`
+- `FAPSHI_API_KEY`
+- `FAPSHI_BASE_URL` when overriding the default live environment
+- `WEB_PUSH_PUBLIC_KEY`
+- `WEB_PUSH_PRIVATE_KEY`
+- `WEB_PUSH_SUBJECT`
+- `MAPS_API_KEY`
 
-## Learn More
+`AUTH_SESSION_SECRET` is mandatory for security-sensitive hashing. The application must not be deployed without it.
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+## Database
+
+The Drizzle schema is located at:
+
+```text
+db/schema.ts
+```
+
+Migration files are stored in:
+
+```text
+drizzle/
+```
+
+Generate a migration after schema changes:
+
+```bash
+npm run db:generate
+```
+
+Review generated SQL before applying it to any shared or production database.
+
+## Main application areas
+
+```text
+app/                  Pages, API routes, authentication, security, and domain logic
+db/                   Drizzle schema
+drizzle/              D1 migrations
+public/                Public assets
+tests/                 Automated checks
+.openai/hosting.json   Hosted D1 and R2 binding declaration
+```
+
+## Security notes
+
+- Session cookies are `HttpOnly`, `Secure`, and `SameSite=Lax`.
+- Session tokens are stored as hashes.
+- State-changing requests should reject cross-site mutations.
+- Payment completion must be verified with Fapshi before an order is marked paid.
+- Access to private order data and media must be checked server-side.
+- Administrative actions must be authorized by role and recorded where appropriate.
+
+## Current maturity
+
+Kola is a feature-rich pre-production MVP. Authentication, payments, permissions, database migrations, and order-state transitions must pass behavioral tests and production-readiness review before a public launch.
+
+Production-hardening work is tracked in GitHub Issue #1.
