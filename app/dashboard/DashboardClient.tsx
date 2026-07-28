@@ -1,18 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft, ArrowRight, Bell, Bike, Check, ChevronRight, CircleUserRound,
-  ClipboardList, Clock3, Home, MapPin, Menu, MessageCircle, Minus, Navigation,
-  Package, Plus, Search, ShoppingBag, Store, Truck, WalletCards, X
+  ClipboardList, Clock3, Home, ImagePlus, MapPin, Menu, MessageCircle, Mic,
+  Minus, Navigation, Package, Plus, Search, ShoppingBag, Square, Store, Truck,
+  WalletCards, X
 } from "lucide-react";
+import OrderCall from "./OrderCall";
 
 type Role = "customer" | "vendor" | "rider";
 type Product = { id:string;name:string;vendor:string;price:number;stock:number;category:string;image:string };
 type Order = { id:string;status:string;total:number;payment_status:string;delivery_address:string };
 type Delivery = { id:string;order_id:string;status:string;courier_id?:string;courier_fee:number;distance_km:number;dropoff_address:string;tracking_token?:string };
-type Message = { orderId:string;who:string;text:string;time:string;kind:string };
+type Message = { id:string;orderId:string;who:string;text:string;time:string;kind:string;type:"text"|"image"|"audio";mediaUrl?:string;durationMs?:number };
 type Address = { id:string;address:string;city:string;instructions:string };
 type Workspace = { products:Product[];orders:Order[];deliveries:Delivery[];messages:Message[];addresses:Address[];actor?:{id:string;displayName:string;activeRole:Role;city?:string;authProvider?:"whatsapp"} };
 type Tab = "Home"|"Orders"|"Messages"|"Payments"|"Account";
@@ -51,11 +53,12 @@ export default function DashboardClient(){
         actor:raw.actor,
         products:raw.products.map((p:Record<string,unknown>,i:number)=>({id:String(p.id),name:String(p.name),vendor:String(p.vendor_name||"Store"),price:Number(p.price),stock:Number(p.stock),category:String(p.category),image:productImages[i%productImages.length]})),
         orders:raw.orders,deliveries:raw.deliveries,addresses:raw.addresses||[],
-        messages:raw.messages.map((m:Record<string,unknown>)=>({orderId:String(m.order_id),who:String(m.sender_name),text:String(m.body),time:new Date(Number(m.created_at)).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),kind:String(m.sender_role)})),
+        messages:raw.messages.map((m:Record<string,unknown>)=>({id:String(m.id),orderId:String(m.order_id),who:String(m.sender_name),text:String(m.body),time:new Date(Number(m.created_at)).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),kind:String(m.sender_role),type:String(m.message_type||"text") as Message["type"],mediaUrl:m.media_key?`/api/media/${String(m.id)}`:undefined,durationMs:Number(m.duration_ms||0)})),
       });
     }catch{showNotice("We couldn’t refresh your workspace.");}finally{setLoading(false)}
   },[showNotice]);
   useEffect(()=>{const timer=window.setTimeout(refresh,0);return()=>window.clearTimeout(timer)},[refresh]);
+  useEffect(()=>{if(!data.actor?.id)return;const check=async()=>{try{const response=await fetch("/api/calls?inbox=1",{cache:"no-store"});if(!response.ok)return;const result=await response.json();if(result.call?.order_id){setSelectedOrder(String(result.call.order_id));setPanel("chat")}}catch{}};void check();const timer=window.setInterval(check,3000);return()=>window.clearInterval(timer)},[data.actor?.id]);
 
   const role=data.actor?.activeRole||"customer";
   const cartCount=[...cart.values()].reduce((a,b)=>a+b,0);
@@ -92,7 +95,7 @@ export default function DashboardClient(){
     </section>
     <MobileNav tab={tab} setTab={setTab} openChat={()=>{setTab("Messages")}}/>
     {panel==="cart"&&<CartPanel cart={cart} products={data.products} defaultAddress={data.addresses[0]?.address||""} busy={busy} close={()=>setPanel(null)} add={add} subtract={subtract} submit={placeOrder}/>}
-    {panel==="chat"&&selectedOrder&&<ChatPanel orderId={selectedOrder} messages={data.messages.filter(m=>m.orderId===selectedOrder)} role={role} close={()=>setPanel(null)} send={async body=>{await api("send_message",{orderId:selectedOrder,body});await refresh()}}/>}
+    {panel==="chat"&&selectedOrder&&data.actor&&<ChatPanel orderId={selectedOrder} messages={data.messages.filter(m=>m.orderId===selectedOrder)} role={role} actorId={data.actor.id} close={()=>setPanel(null)} onRefresh={refresh} onNotice={showNotice}/>}
     {panel==="product"&&<ProductPanel busy={busy} close={()=>setPanel(null)} save={async product=>{setBusy(true);try{await api("create_product",product);setPanel(null);showNotice("Product published");await refresh()}catch(error){showNotice(error instanceof Error?error.message:"Could not save product")}finally{setBusy(false)}}}/>}
     {notice&&<div className="app-toast"><Check size={16}/>{notice}</div>}
   </main>
@@ -140,5 +143,272 @@ function AccountPage({actor,role}:{actor:Workspace["actor"];role:Role}){return <
 
 function Drawer({title,subtitle,close,children}:{title:string;subtitle?:string;close:()=>void;children:React.ReactNode}){return <div className="drawer-layer"><button className="drawer-backdrop" onClick={close} aria-label="Close"/><aside className="app-drawer"><header><button onClick={close}><ArrowLeft/></button><div><h2>{title}</h2>{subtitle&&<span>{subtitle}</span>}</div><button onClick={close}><X/></button></header>{children}</aside></div>}
 function CartPanel({cart,products,defaultAddress,busy,close,add,subtract,submit}:{cart:Map<string,number>;products:Product[];defaultAddress:string;busy:boolean;close:()=>void;add:(id:string)=>void;subtract:(id:string)=>void;submit:(address:string)=>void}){const [address,setAddress]=useState(defaultAddress);const lines=[...cart.entries()].map(([id,qty])=>({product:products.find(p=>p.id===id),qty})).filter(line=>line.product) as {product:Product;qty:number}[];const subtotal=lines.reduce((sum,line)=>sum+line.product.price*line.qty,0);return <Drawer title="Your bag" subtitle={`${lines.length} items`} close={close}><div className="drawer-body cart-body">{lines.length?lines.map(({product,qty})=><article className="cart-line" key={product.id}><img src={product.image} alt=""/><div><b>{product.name}</b><span>{product.vendor}</span><strong>{product.price.toLocaleString()} FCFA</strong></div><div className="quantity"><button onClick={()=>subtract(product.id)}><Minus/></button><b>{qty}</b><button onClick={()=>add(product.id)}><Plus/></button></div></article>):<Empty icon={<ShoppingBag/>} title="Your bag is empty" text="Add products to start an order."/>}{lines.length>0&&<><label className="field-label">Delivery address<textarea value={address} onChange={e=>setAddress(e.target.value)} placeholder="Street, neighbourhood and landmark"/></label><div className="payment-option"><span><WalletCards/></span><div><b>Cash on delivery</b><small>Pay when your order arrives</small></div><Check/></div><div className="checkout-summary"><span>Subtotal <b>{subtotal.toLocaleString()} FCFA</b></span><span>Delivery <b>1,500 FCFA</b></span><span className="grand-total">Total <b>{(subtotal+1500).toLocaleString()} FCFA</b></span></div><button disabled={busy||address.trim().length<5} className="primary-button checkout-submit" onClick={()=>submit(address)}>{busy?"Placing order…":<>Place order <ArrowRight/></>}</button></>}</div></Drawer>}
-function ChatPanel({orderId,messages,role,close,send}:{orderId:string;messages:Message[];role:Role;close:()=>void;send:(body:string)=>Promise<void>}){const [draft,setDraft]=useState("");const [sending,setSending]=useState(false);const submit=async()=>{if(!draft.trim())return;const body=draft;setDraft("");setSending(true);try{await send(body)}finally{setSending(false)}};return <Drawer title={`Order ${orderId}`} subtitle="Customer · Vendor · Rider" close={close}><div className="chat-body"><div className="chat-notice"><Truck/><span>Messages are shared with everyone involved in this delivery.</span></div><div className="chat-messages">{messages.length?messages.map((message,index)=><article className={message.kind===role?"mine":""} key={`${message.time}-${index}`}><b>{message.who}</b><p>{message.text}</p><span>{message.time}</span></article>):<Empty icon={<MessageCircle/>} title="Start the conversation" text="Send a message about this order."/ >}</div><div className="chat-compose"><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Write a message"/><button disabled={sending||!draft.trim()} onClick={submit}><ArrowRight/></button></div></div></Drawer>}
+function ChatPanel({
+  orderId,
+  messages,
+  role,
+  actorId,
+  close,
+  onRefresh,
+  onNotice,
+}: {
+  orderId: string;
+  messages: Message[];
+  role: Role;
+  actorId: string;
+  close: () => void;
+  onRefresh: () => Promise<void>;
+  onNotice: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingStartedRef = useRef(0);
+  const cancelRecordingRef = useRef(false);
+  const messageEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void onRefresh(), 4000);
+    return () => window.clearInterval(timer);
+  }, [onRefresh]);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages.length]);
+
+  useEffect(() => {
+    if (!recording) return;
+    const timer = window.setInterval(
+      () =>
+        setRecordingSeconds(
+          Math.max(1, Math.floor((Date.now() - recordingStartedRef.current) / 1000)),
+        ),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [recording]);
+
+  useEffect(
+    () => () => {
+      const recorder = recorderRef.current;
+      cancelRecordingRef.current = true;
+      if (recorder?.state === "recording") recorder.stop();
+      recorder?.stream.getTracks().forEach((track) => track.stop());
+    },
+    [],
+  );
+
+  const submit = async () => {
+    if (!draft.trim()) return;
+    const body = draft.trim();
+    setDraft("");
+    setSending(true);
+    try {
+      await api("send_message", { orderId, body });
+      await onRefresh();
+    } catch (error) {
+      setDraft(body);
+      onNotice(error instanceof Error ? error.message : "Could not send the message.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const upload = async (file: File | Blob, durationMs = 0) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("orderId", orderId);
+      form.set("file", file, file instanceof File ? file.name : "voice-note.webm");
+      if (durationMs) form.set("durationMs", String(durationMs));
+      const response = await fetch("/api/messages/upload", {
+        method: "POST",
+        body: form,
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The attachment failed to send.");
+      await onRefresh();
+    } catch (error) {
+      onNotice(
+        error instanceof Error ? error.message : "The attachment failed to send.",
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const chooseImage = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      onNotice("Choose an image from your device.");
+      return;
+    }
+    void upload(file);
+  };
+
+  const toggleRecording = async () => {
+    const current = recorderRef.current;
+    if (current?.state === "recording") {
+      current.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      onNotice("Voice notes are not supported on this device.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const supported = [
+        "audio/webm;codecs=opus",
+        "audio/mp4",
+        "audio/ogg;codecs=opus",
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(
+        stream,
+        supported ? { mimeType: supported } : undefined,
+      );
+      recorderRef.current = recorder;
+      cancelRecordingRef.current = false;
+      recordingChunksRef.current = [];
+      recordingStartedRef.current = Date.now();
+      setRecordingSeconds(0);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const duration = Date.now() - recordingStartedRef.current;
+        const blob = new Blob(recordingChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        stream.getTracks().forEach((track) => track.stop());
+        recorderRef.current = null;
+        setRecording(false);
+        setRecordingSeconds(0);
+        if (blob.size && !cancelRecordingRef.current) void upload(blob, duration);
+      };
+      recorder.start(250);
+      setRecording(true);
+    } catch {
+      onNotice("Allow microphone access to record a voice note.");
+    }
+  };
+
+  return (
+    <Drawer
+      title={`Order ${orderId}`}
+      subtitle="Customer · Vendor · Rider"
+      close={close}
+    >
+      <div className="chat-body">
+        <div className="chat-notice">
+          <Truck />
+          <span>Messages and calls are private to everyone involved in this order.</span>
+          <OrderCall orderId={orderId} actorId={actorId} onNotice={onNotice} />
+        </div>
+
+        <div className="chat-messages">
+          {messages.length ? (
+            messages.map((message) => (
+              <article
+                className={`${message.kind === role ? "mine" : ""} message-${message.type}`}
+                key={message.id}
+              >
+                <b>{message.who}</b>
+                {message.type === "image" && message.mediaUrl ? (
+                  <a
+                    className="chat-image"
+                    href={message.mediaUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <img src={message.mediaUrl} alt={`Shared by ${message.who}`} />
+                  </a>
+                ) : message.type === "audio" && message.mediaUrl ? (
+                  <div className="voice-note">
+                    <Mic />
+                    <audio controls preload="metadata" src={message.mediaUrl} />
+                  </div>
+                ) : (
+                  <p>{message.text}</p>
+                )}
+                <span>{message.time}</span>
+              </article>
+            ))
+          ) : (
+            <Empty
+              icon={<MessageCircle />}
+              title="Start the conversation"
+              text="Send a message, photo, or voice note about this order."
+            />
+          )}
+          <div ref={messageEndRef} />
+        </div>
+
+        {recording && (
+          <div className="recording-bar">
+            <span />
+            Recording voice note
+            <b>{formatDuration(recordingSeconds)}</b>
+            <small>Tap stop to send</small>
+          </div>
+        )}
+        {uploading && <div className="uploading-bar">Sending attachment…</div>}
+
+        <div className="chat-compose">
+          <input
+            ref={fileInputRef}
+            className="chat-file-input"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            onChange={(event) => {
+              chooseImage(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+          <button
+            className="compose-tool"
+            disabled={uploading || recording}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Attach an image"
+          >
+            <ImagePlus />
+          </button>
+          <input
+            value={draft}
+            disabled={recording}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => event.key === "Enter" && void submit()}
+            placeholder={recording ? "Recording voice note…" : "Write a message"}
+          />
+          <button
+            className={`compose-tool record-button ${recording ? "active" : ""}`}
+            disabled={uploading}
+            onClick={toggleRecording}
+            aria-label={recording ? "Stop and send voice note" : "Record a voice note"}
+          >
+            {recording ? <Square /> : <Mic />}
+          </button>
+          <button
+            className="send-button"
+            disabled={sending || uploading || recording || !draft.trim()}
+            onClick={submit}
+            aria-label="Send message"
+          >
+            <ArrowRight />
+          </button>
+        </div>
+      </div>
+    </Drawer>
+  );
+}
+
+function formatDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
 function ProductPanel({busy,close,save}:{busy:boolean;close:()=>void;save:(p:Record<string,unknown>)=>Promise<void>}){const [name,setName]=useState("");const [description,setDescription]=useState("");const [category,setCategory]=useState("Food");const [price,setPrice]=useState("");const [stock,setStock]=useState("10");return <Drawer title="Add product" subtitle="Publish to your storefront" close={close}><div className="drawer-body form-body"><label className="field-label">Product name<input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Grilled fish platter"/></label><label className="field-label">Description<textarea value={description} onChange={e=>setDescription(e.target.value)} placeholder="Describe what the customer receives"/></label><div className="form-grid"><label className="field-label">Category<select value={category} onChange={e=>setCategory(e.target.value)}><option>Food</option><option>Groceries</option><option>Fashion</option><option>Pharmacy</option><option>Other</option></select></label><label className="field-label">Stock<input type="number" min="0" value={stock} onChange={e=>setStock(e.target.value)}/></label></div><label className="field-label">Price (FCFA)<input type="number" min="50" value={price} onChange={e=>setPrice(e.target.value)} placeholder="5000"/></label><button disabled={busy||!name.trim()||Number(price)<50} className="primary-button checkout-submit" onClick={()=>save({name,description,category,price:Number(price),stock:Number(stock)})}>{busy?"Publishing…":<>Publish product <ArrowRight/></>}</button></div></Drawer>}

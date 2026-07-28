@@ -163,8 +163,39 @@ export const messages = sqliteTable("messages", {
   senderRole: text("sender_role").notNull(),
   body: text("body").notNull(),
   messageType: text("message_type").notNull().default("text"),
+  mediaKey: text("media_key"),
+  mediaType: text("media_type"),
+  mediaSize: integer("media_size"),
+  durationMs: integer("duration_ms"),
   createdAt: integer("created_at").notNull(),
 });
+
+export const voiceCalls = sqliteTable("voice_calls", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  initiatorId: text("initiator_id").notNull(),
+  initiatorName: text("initiator_name").notNull(),
+  answeredBy: text("answered_by"),
+  status: text("status").notNull().default("ringing"),
+  offerSdp: text("offer_sdp").notNull(),
+  answerSdp: text("answer_sdp"),
+  createdAt: integer("created_at").notNull(),
+  answeredAt: integer("answered_at"),
+  endedAt: integer("ended_at"),
+}, (table) => [
+  index("voice_call_order_created_idx").on(table.orderId, table.createdAt),
+  index("voice_call_status_idx").on(table.status),
+]);
+
+export const voiceCallCandidates = sqliteTable("voice_call_candidates", {
+  id: text("id").primaryKey(),
+  callId: text("call_id").notNull(),
+  userId: text("user_id").notNull(),
+  candidate: text("candidate").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("voice_call_candidate_call_idx").on(table.callId, table.createdAt),
+]);
 
 export const payments = sqliteTable("payments", {
   id: text("id").primaryKey(),
