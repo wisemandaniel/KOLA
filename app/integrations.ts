@@ -65,8 +65,8 @@ export async function startPayment({
       amount,
       ...(email ? { email } : {}),
       redirectUrl: `${origin}/dashboard?payment=returned`,
-      userId: safeReference(userId),
-      externalId: safeReference(orderId),
+      userId: safePaymentReference(userId),
+      externalId: safePaymentReference(orderId),
       message: `Kola order ${orderId}`,
     }),
   });
@@ -128,7 +128,7 @@ function fapshiBaseUrl() {
   return url.origin;
 }
 
-function normalizeFapshiStatus(
+export function normalizeFapshiStatus(
   value: string,
 ): FapshiStatus["status"] {
   switch (value.toUpperCase()) {
@@ -143,7 +143,7 @@ function normalizeFapshiStatus(
   }
 }
 
-function safeReference(value: string) {
+export function safePaymentReference(value: string) {
   const result = value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100);
   if (!result) throw new Error("Payment reference is invalid.");
   return result;
