@@ -1,6 +1,21 @@
 import type { Metadata } from "next";
 import "@fontsource-variable/inter";
 import "./globals.css";
+import ThemeToggle from "./ThemeToggle";
+
+const themeScript = `
+  (function () {
+    try {
+      var saved = localStorage.getItem("kola-theme");
+      var theme = saved === "dark" || saved === "light"
+        ? saved
+        : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.dataset.theme = theme;
+    } catch (_) {
+      document.documentElement.dataset.theme = "light";
+    }
+  })();
+`;
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://kola-cameroon.whackyhistory.chatgpt.site"),
@@ -20,5 +35,13 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
+      <body>
+        {children}
+        <ThemeToggle />
+      </body>
+    </html>
+  );
 }

@@ -104,3 +104,71 @@ svg{stroke-width:1.8}
   .registration>header{height:60px;padding:0 16px}.registration-shell{display:block;margin:0;padding:0}.registration-shell>aside{display:none}.registration-shell>section{min-height:calc(100vh - 60px);border:0;border-radius:0;padding:28px 20px;box-shadow:none}.registration h1{font-size:25px}.reg-actions{position:sticky;bottom:0;background:#fff;padding:14px 0 4px}.reg-actions .blue-button{flex:1}
   .track-header{height:60px;padding:0 14px}.track-header>span{display:none}.tracking-shell{padding:22px 12px}.tracking-title{align-items:flex-start;gap:12px}.tracking-title h1{font-size:23px}.tracking-title button{flex:none}.tracking-map{min-height:350px}.tracking-panel{padding:18px}
 }
+
+/* Theme control */
+.theme-toggle{position:fixed;right:20px;bottom:20px;z-index:140;height:42px;min-width:42px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.9);color:var(--ink);box-shadow:0 12px 32px rgba(36,41,48,.15);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;gap:7px;padding:0 13px;transition:transform .2s ease,background-color .25s ease,color .25s ease,border-color .25s ease}
+.theme-toggle:hover{transform:translateY(-2px)}.theme-toggle svg{width:16px;height:16px}.theme-toggle span{font-size:10px;font-weight:600}.theme-sun{display:none}
+
+/* Dark theme */
+html[data-theme="dark"]{
+  color-scheme:dark;
+  --blue:#55b3ff;--blue-dark:#78c3ff;--blue-soft:#102c43;--periwinkle:#121d2d;
+  --ink:#f4f6f8;--text:#d2d7dd;--muted:#9ca4ae;--faint:#717985;
+  --line:#2a2f36;--surface:#171a1f;--canvas:#0f1115;
+  --green:#6ed6a0;--green-soft:#10291e;--amber:#f0bd68;--amber-soft:#332810;--red:#ff918b;--red-soft:#351817;
+}
+html[data-theme="dark"] body{background:var(--canvas);color:var(--ink)}
+html[data-theme="dark"] .theme-toggle{background:rgba(23,26,31,.92);box-shadow:0 12px 34px rgba(0,0,0,.4)}
+html[data-theme="dark"] .theme-moon{display:none}
+html[data-theme="dark"] .theme-sun{display:block}
+
+html[data-theme="dark"] :is(
+  .pro-site,.pro-nav,.product-preview,.feature-card,.ops-preview,.price-card,
+  .business-list div,.app-sidebar,.app-header,.live-order,.search-field,
+  .category-row button,.shop-card,.metric,.surface,.conversation-list>button,
+  .profile-surface,.settings-list,.settings-list button,.app-drawer,
+  .quantity button,.field-label input,.field-label textarea,.field-label select,
+  .chat-compose input,.registration>header,.registration-shell>section,
+  .registration input,.registration select,.registration textarea,.phone-field.production,
+  .track-header,.tracking-title button,.eta-card,.tracking-panel,.track-courier>a,
+  .track-pin,.white-button,.store-head button,.preview-top>span,.route-line-ui>i,
+  .trip-eta,.active-trip,.mobile-nav
+){background-color:var(--surface);border-color:var(--line);color:var(--ink)}
+
+html[data-theme="dark"] :is(.muted-section,.faq-section,.preview-top,.sidebar-help,.preview-search,.ops-stats div,.table-head,.order-id>span,.track-courier,.conversation-list>button:hover,.settings-list button:hover){background:#12151a}
+html[data-theme="dark"] :is(.pro-site,.logo-strip,.pricing-section,.pro-footer){background:#0f1115}
+html[data-theme="dark"] :is(.ops-section,.registration,.tracking-page,.trip-map){background:var(--periwinkle)}
+html[data-theme="dark"] .final-cta{background:#07090c;color:#fff}
+html[data-theme="dark"] .final-cta h2{color:#fff}
+html[data-theme="dark"] .final-cta p{color:#a9b0b9}
+html[data-theme="dark"] .pro-nav{background:rgba(15,17,21,.84)}
+html[data-theme="dark"] .app-header{background:rgba(15,17,21,.88)}
+html[data-theme="dark"] .track-header{background:rgba(15,17,21,.88)}
+html[data-theme="dark"] :is(.primary-button,.blue-button,.price-card.featured>a,.category-row button.active,.shop-image button,.chat-compose button,.app-toast){background:#f4f6f8;color:#12151a;border-color:#f4f6f8}
+html[data-theme="dark"] :is(.app-logo>span,.pro-logo>span,.store-avatar,.rider-avatar,.track-header .brandmark,.track-pin.destination){background:#f4f6f8;color:#12151a}
+html[data-theme="dark"] :is(.preview-products button,.cart-button b,.route-line-ui>i.rider,.track-pin.rider){background:var(--blue);color:#07121b;border-color:var(--blue)}
+html[data-theme="dark"] :is(.app-sidebar nav button,.cart-button,.icon-button,.back-button,.order-id>span,.route-line-ui>i,.settings-list button){color:var(--text)}
+html[data-theme="dark"] .app-sidebar nav button:hover{background:#20242a}
+html[data-theme="dark"] .app-sidebar nav button.active{background:var(--periwinkle);color:var(--ink)}
+html[data-theme="dark"] :is(.shop-image,.trip-map,.tracking-map){background:#161d27}
+html[data-theme="dark"] :is(.trip-map:before,.tracking-map:before){opacity:.45}
+html[data-theme="dark"] :is(.shop-image img,.preview-products img){filter:brightness(.86) saturate(.9)}
+html[data-theme="dark"] :is(.payment-option,.chat-notice,.conversation-list>button>span,.profile-large,.header-profile>span,.track-courier>span,.feature-card>span,.floating-delivery>span){background:var(--blue-soft);color:var(--blue);border-color:#254c6b}
+html[data-theme="dark"] .floating-delivery{background:#1a1e24;border-color:var(--line);box-shadow:0 24px 65px rgba(0,0,0,.5)}
+html[data-theme="dark"] .mini-order{background:var(--green-soft);border-color:#245239}
+html[data-theme="dark"] .chat-messages article{background:#252a31}
+html[data-theme="dark"] .chat-messages article.mine{background:#12344f}
+html[data-theme="dark"] :is(input,textarea,select){background:var(--surface);color:var(--ink);border-color:var(--line)}
+html[data-theme="dark"] :is(input,textarea)::placeholder{color:#69727e}
+html[data-theme="dark"] .registration-shell>aside span.active i{background:#f4f6f8;border-color:#f4f6f8;color:#12151a}
+html[data-theme="dark"] .registration-shell>section{box-shadow:0 24px 70px rgba(0,0,0,.35)}
+html[data-theme="dark"] .reg-actions{background:transparent}
+html[data-theme="dark"] .drawer-backdrop{background:rgba(0,0,0,.7)}
+html[data-theme="dark"] :is(.status-accepted,.status-preparing,.status-ready,.status-picked_up,.status-on_the_way){background:var(--blue-soft);color:var(--blue)}
+html[data-theme="dark"] :is(.status-pending,.status-unassigned){background:var(--amber-soft);color:var(--amber)}
+html[data-theme="dark"] :is(.status-delivered,.status-paid){background:var(--green-soft);color:var(--green)}
+html[data-theme="dark"] :is(.status-rejected,.status-failed){background:var(--red-soft);color:var(--red)}
+html[data-theme="dark"] .app-loading{background:var(--canvas)}
+
+@media(max-width:820px){.theme-toggle{bottom:80px;right:12px}}
+@media(max-width:600px){.theme-toggle{width:38px;height:38px;min-width:38px;padding:0}.theme-toggle span{display:none}html[data-theme="dark"] .registration-shell>section{background:var(--surface)}html[data-theme="dark"] .reg-actions{background:var(--surface)}}
