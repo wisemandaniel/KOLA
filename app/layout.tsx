@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/inter";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,13 +9,13 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Kola | Your online store and delivery operations",
     description: "Create a storefront, take structured orders and coordinate local delivery.",
-    images: [{ url: "/og.png", width: 1536, height: 904, alt: "Kola commerce and logistics platform" }],
+    images: [{ url: "/og-take-inspired.png", width: 1638, height: 960, alt: "Kola commerce and delivery platform" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Kola | Online stores, orders and local delivery",
     description: "Create a storefront, take orders and coordinate local delivery.",
-    images: ["/og.png"],
+    images: ["/og-take-inspired.png"],
   },
 };
 
