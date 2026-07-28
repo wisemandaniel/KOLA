@@ -17,11 +17,9 @@ type Step = "phone" | "code";
 
 export default function LoginClient({
   returnTo,
-  chatGPTUrl,
   whatsappReady,
 }: {
   returnTo: string;
-  chatGPTUrl: string;
   whatsappReady: boolean;
 }) {
   const [step, setStep] = useState<Step>("phone");
@@ -164,7 +162,7 @@ export default function LoginClient({
               <small id="phone-help">
                 {whatsappReady
                   ? "We will send a one-time code through WhatsApp. No password needed."
-                  : "WhatsApp verification is being connected. ChatGPT sign-in remains available below."}
+                  : "WhatsApp verification is being connected. Sign-in will be available as soon as activation is complete."}
               </small>
               {error && <div className="auth-error">{error}</div>}
               <button
@@ -222,14 +220,6 @@ export default function LoginClient({
               </div>
             </form>
           )}
-
-          <div className="auth-divider">
-            <span>or</span>
-          </div>
-          <Link className="auth-provider-button" href={chatGPTUrl}>
-            <span className="auth-chatgpt-mark">◎</span>
-            Continue with ChatGPT
-          </Link>
           <p className="auth-legal">
             By continuing, you agree to Kola&apos;s Terms and acknowledge our Privacy
             Policy.

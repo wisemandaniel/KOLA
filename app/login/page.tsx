@@ -5,7 +5,6 @@ import {
   readRuntimeAuthConfig,
   safeReturnPath,
 } from "../auth";
-import { chatGPTSignInPath } from "../chatgpt-auth";
 import LoginClient from "./LoginClient";
 
 export const dynamic = "force-dynamic";
@@ -35,11 +34,5 @@ export default async function LoginPage({
       authConfig.phoneNumberId,
   );
 
-  return (
-    <LoginClient
-      returnTo={returnTo}
-      chatGPTUrl={chatGPTSignInPath(returnTo)}
-      whatsappReady={whatsappReady}
-    />
-  );
+  return <LoginClient returnTo={returnTo} whatsappReady={whatsappReady} />;
 }

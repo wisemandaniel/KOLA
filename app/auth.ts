@@ -1,7 +1,6 @@
 import { env } from "cloudflare:workers";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getChatGPTUser } from "./chatgpt-auth";
 
 export const SESSION_COOKIE = "kola_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
@@ -11,7 +10,7 @@ export type AuthenticatedUser = {
   displayName: string;
   email: string;
   phone: string | null;
-  provider: "chatgpt" | "whatsapp";
+  provider: "whatsapp";
 };
 
 type SessionRow = {
@@ -22,17 +21,6 @@ type SessionRow = {
 };
 
 export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> {
-  const chatGPTUser = await getChatGPTUser();
-  if (chatGPTUser) {
-    return {
-      userId: chatGPTUser.email,
-      displayName: chatGPTUser.displayName,
-      email: chatGPTUser.email,
-      phone: null,
-      provider: "chatgpt",
-    };
-  }
-
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (!token) return null;
@@ -80,9 +68,6 @@ export function safeReturnPath(value: string | null | undefined, fallback = "/")
   if (url.origin !== "https://app.local") return fallback;
   if (
     url.pathname === "/login" ||
-    url.pathname === "/signin-with-chatgpt" ||
-    url.pathname === "/signout-with-chatgpt" ||
-    url.pathname === "/callback" ||
     url.pathname.startsWith("/api/auth/")
   ) {
     return fallback;

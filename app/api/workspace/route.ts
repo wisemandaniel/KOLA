@@ -7,10 +7,6 @@ type Row = Record<string, unknown>;
 async function requireActor() {
   const identity = await getAuthenticatedUser();
   if (!identity) return null;
-  if (identity.provider === "chatgpt") {
-    await env.DB.prepare("INSERT OR IGNORE INTO users (id,email,display_name,active_role,language,onboarding_complete,created_at) VALUES (?,?,?,?,?,?,?)")
-      .bind(identity.userId, identity.email, identity.displayName, "customer", "en", 0, Date.now()).run();
-  }
   const actor = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(identity.userId).first<Row>();
   return actor ? { ...actor, _auth_provider: identity.provider } : null;
 }

@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   const config = readRuntimeAuthConfig();
   if (!config.sessionSecret || !config.accessToken || !config.phoneNumberId) {
     return reject(
-      "WhatsApp verification is being connected. Please use ChatGPT sign-in for now.",
+      "WhatsApp verification is being connected. Sign-in will be available once activation is complete.",
       503,
     );
   }

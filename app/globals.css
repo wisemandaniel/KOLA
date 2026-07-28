@@ -122,9 +122,7 @@ svg{stroke-width:1.8}
 .auth-code-input{height:64px;border:1px solid #d9dde3;border-radius:15px;background:var(--surface);color:var(--ink);outline:0;text-align:center;font-size:24px;font-weight:650;letter-spacing:11px;padding-left:11px;transition:border-color .2s,box-shadow .2s}.auth-code-input:focus{border-color:var(--blue);box-shadow:0 0 0 4px rgba(0,130,230,.1)}
 .auth-code-actions{display:flex;align-items:center;justify-content:space-between;margin-top:15px}.auth-code-actions button{border:0;background:transparent;color:var(--blue);padding:4px 0;font-size:10px;font-weight:620}.auth-code-actions button:disabled{color:var(--faint)}
 .auth-error{margin-top:14px;border:1px solid #fecdca;background:var(--red-soft);color:var(--red);border-radius:13px;padding:11px 12px;font-size:10px;line-height:1.45}
-.auth-divider{display:flex;align-items:center;gap:12px;color:var(--faint);font-size:9px;margin:24px 0 16px}.auth-divider:before,.auth-divider:after{content:"";height:1px;background:var(--line);flex:1}
-.auth-provider-button{height:50px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);text-decoration:none;display:flex;align-items:center;justify-content:center;gap:10px;font-size:12px;font-weight:600;transition:.2s ease}.auth-provider-button:hover{background:#f7f8fa;border-color:#cdd2d8}.auth-chatgpt-mark{width:23px;height:23px;border:1.5px solid var(--text);border-radius:50%;display:grid;place-items:center;font-size:15px;line-height:1}
-.auth-legal{text-align:center;color:var(--faint);font-size:8px;line-height:1.55;margin:17px 20px 0}
+.auth-legal{text-align:center;color:var(--faint);font-size:8px;line-height:1.55;margin:22px 20px 0}
 .auth-preview{position:relative;overflow:hidden;background:linear-gradient(145deg,#14191f 0%,#20262f 56%,#0c6cb5 145%);color:#fff;padding:58px;display:flex;flex-direction:column;justify-content:center}
 .auth-preview:before{content:"";position:absolute;width:420px;height:420px;border-radius:50%;right:-190px;top:-150px;background:rgba(85,179,255,.13);box-shadow:0 0 0 80px rgba(85,179,255,.04),0 0 0 160px rgba(85,179,255,.025)}
 .auth-preview-copy,.auth-flow-card,.auth-trust-row{position:relative;z-index:1}.auth-preview-copy>span{color:#74c1ff;font-size:9px;font-weight:700;letter-spacing:1px}.auth-preview-copy h2{max-width:510px;font-size:38px;line-height:1.13;letter-spacing:-1.35px;margin:15px 0 14px;font-weight:620}.auth-preview-copy p{max-width:470px;margin:0;color:#b9c1cb;font-size:13px;line-height:1.65}
@@ -163,7 +161,7 @@ html[data-theme="dark"] :is(
   .track-header,.tracking-title button,.eta-card,.tracking-panel,.track-courier>a,
   .track-pin,.white-button,.store-head button,.preview-top>span,.route-line-ui>i,
   .trip-eta,.active-trip,.mobile-nav,.auth-page,.auth-card,.auth-phone-field,
-  .auth-phone-field input,.auth-code-input,.auth-provider-button
+  .auth-phone-field input,.auth-code-input
 ){background-color:var(--surface);border-color:var(--line);color:var(--ink)}
 
 html[data-theme="dark"] :is(.muted-section,.faq-section,.preview-top,.sidebar-help,.preview-search,.ops-stats div,.table-head,.order-id>span,.track-courier,.conversation-list>button:hover,.settings-list button:hover){background:#12151a}
@@ -195,7 +193,6 @@ html[data-theme="dark"] .registration-shell>aside span.active i{background:#f4f6
 html[data-theme="dark"] .registration-shell>section{box-shadow:0 24px 70px rgba(0,0,0,.35)}
 html[data-theme="dark"] .reg-actions{background:transparent}
 html[data-theme="dark"] .auth-shell{border-color:var(--line);box-shadow:0 30px 90px rgba(0,0,0,.42)}
-html[data-theme="dark"] .auth-provider-button:hover{background:#20242a}
 html[data-theme="dark"] .auth-primary{background:#f4f6f8;color:#12151a}
 html[data-theme="dark"] .auth-phone-field:focus-within,html[data-theme="dark"] .auth-code-input:focus{box-shadow:0 0 0 4px rgba(85,179,255,.13)}
 html[data-theme="dark"] .drawer-backdrop{background:rgba(0,0,0,.7)}
