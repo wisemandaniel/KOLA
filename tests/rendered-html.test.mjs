@@ -24,11 +24,12 @@ test("ships Kola product metadata without starter or ChatGPT sign-in remnants", 
 });
 
 test("protects WhatsApp-only verification and persistent sessions", async () => {
-  const [requestRoute, verifyRoute, logoutRoute, auth] = await Promise.all([
+  const [requestRoute, verifyRoute, logoutRoute, auth, security] = await Promise.all([
     source("app/api/auth/whatsapp/request/route.ts"),
     source("app/api/auth/whatsapp/verify/route.ts"),
     source("app/api/auth/logout/route.ts"),
     source("app/auth.ts"),
+    source("app/security.ts"),
   ]);
 
   assert.match(requestRoute, /MAX_REQUESTS_PER_WINDOW/);
@@ -41,6 +42,8 @@ test("protects WhatsApp-only verification and persistent sessions", async () => 
   assert.match(auth, /SameSite=Lax/);
   assert.match(auth, /safeReturnPath/);
   assert.match(auth, /KOLA_SUPERADMIN_PHONE/);
+  assert.match(security, /AUTH_SESSION_SECRET is required/);
+  assert.doesNotMatch(security, /kola-unconfigured/);
   assert.match(logoutRoute, /new Response\(null/);
   assert.doesNotMatch(`${requestRoute}\n${verifyRoute}\n${auth}`, /GOOGLE_CLIENT|FACEBOOK_APP/);
 });
