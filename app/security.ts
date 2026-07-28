@@ -135,5 +135,9 @@ function clientAddress(request: Request) {
 }
 
 function runtimeSecret() {
-  return runtimeString("AUTH_SESSION_SECRET") ?? "kola-unconfigured";
+  const secret = runtimeString("AUTH_SESSION_SECRET");
+  if (!secret) {
+    throw new Error("AUTH_SESSION_SECRET is required for security-sensitive hashing.");
+  }
+  return secret;
 }
