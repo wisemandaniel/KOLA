@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "@fontsource-variable/inter";
 import "./globals.css";
 import ThemeToggle from "./ThemeToggle";
+import PwaRegister from "./PwaRegister";
 
 const themeScript = `
   (function () {
@@ -21,6 +22,8 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://kola-cameroon.whackyhistory.chatgpt.site"),
   title: "Kola | Online stores, orders and local delivery",
   description: "Create an online store, take structured orders and manage local delivery from one workspace.",
+  manifest: "/manifest.webmanifest",
+  applicationName: "Kola",
   openGraph: {
     title: "Kola | Your online store and delivery operations",
     description: "Create a storefront, take structured orders and coordinate local delivery.",
@@ -40,6 +43,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
       <body>
         {children}
+        <PwaRegister />
         <ThemeToggle />
       </body>
     </html>

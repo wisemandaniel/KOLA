@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 type TrackData = {
-  order: { id: string; status: string; delivery_address: string };
+  order: { id: string; status: string; delivery_address: string; delivery_lat?: number; delivery_lng?: number };
   delivery?: {
     status: string;
     pickup_address: string;
@@ -22,10 +22,11 @@ type TrackData = {
     current_lat?: number;
     current_lng?: number;
     location_updated_at?: number;
+    estimated_arrival?: number;
   };
   events: { event_type: string; label: string; created_at: number }[];
   courier?: { name: string; rating: number; vehicle: string };
-  vendor: { name: string };
+  vendor: { name: string; latitude?: number; longitude?: number };
 };
 
 const steps = ["accepted", "preparing", "picked_up", "on_the_way", "delivered"];
@@ -76,6 +77,14 @@ export default function TrackingClient({ orderId }: { orderId: string }) {
   const status = data.delivery?.status || data.order.status;
   const normalized = status === "picked_up" ? "on_the_way" : status;
   const active = Math.max(0, steps.indexOf(normalized));
+  const riderLat = data.delivery?.current_lat;
+  const riderLng = data.delivery?.current_lng;
+  const hasLiveMap = Number.isFinite(riderLat) && Number.isFinite(riderLng);
+  const mapDelta = 0.018;
+  const mapUrl = hasLiveMap
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${Number(riderLng)-mapDelta}%2C${Number(riderLat)-mapDelta}%2C${Number(riderLng)+mapDelta}%2C${Number(riderLat)+mapDelta}&layer=mapnik&marker=${riderLat}%2C${riderLng}`
+    : "";
+  const etaMinutes = Math.max(5,Math.round(Number(data.delivery?.distance_km||2.4)/25*60));
 
   const shareTracking = async () => {
     await navigator.clipboard.writeText(location.href);
@@ -101,23 +110,20 @@ export default function TrackingClient({ orderId }: { orderId: string }) {
 
         <div className="tracking-grid">
           <article className="tracking-map">
-            <div className="track-road a" />
-            <div className="track-road b" />
-            <div className="track-road c" />
-            <div className="track-route" />
-            <span className="track-pin shop" aria-label="Vendor">
-              <Store size={18} />
-            </span>
-            <span className="track-pin rider" aria-label="Rider">
-              <Bike size={18} />
-            </span>
-            <span className="track-pin destination" aria-label="Destination">
-              <MapPin size={18} />
-            </span>
+            {hasLiveMap ? <iframe className="live-map-frame" src={mapUrl} title="Live rider location" loading="eager"/> : <>
+              <div className="track-road a" />
+              <div className="track-road b" />
+              <div className="track-road c" />
+              <div className="track-route" />
+              <span className="track-pin shop" aria-label="Vendor"><Store size={18} /></span>
+              <span className="track-pin rider" aria-label="Rider"><Bike size={18} /></span>
+              <span className="track-pin destination" aria-label="Destination"><MapPin size={18} /></span>
+            </>}
             <div className="eta-card">
               <small>ESTIMATED ARRIVAL</small>
-              <strong>{status === "delivered" ? "Delivered" : "8-12 min"}</strong>
+              <strong>{status === "delivered" ? "Delivered" : `${etaMinutes}-${etaMinutes+5} min`}</strong>
               <span>{data.delivery?.distance_km || 2.4} km remaining</span>
+              {data.delivery?.location_updated_at&&<small>Updated {new Date(data.delivery.location_updated_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</small>}
             </div>
           </article>
 

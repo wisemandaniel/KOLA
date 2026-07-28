@@ -47,9 +47,16 @@ export async function GET(request: Request) {
     .bind(actor.id, now, now, orderId, actor.id)
     .run();
 
-  const result = await env.DB.prepare(messageQuery).bind(orderId).all<MessageRow>();
+  const [result, typing] = await env.DB.batch([
+    env.DB.prepare(messageQuery).bind(orderId),
+    env.DB.prepare(
+      `SELECT u.display_name
+       FROM chat_presence cp JOIN users u ON u.id=cp.user_id
+       WHERE cp.order_id=? AND cp.user_id!=? AND cp.last_typed_at>?`,
+    ).bind(orderId, actor.id, now - 4500),
+  ]);
   return Response.json(
-    { messages: result.results },
+    { messages: result.results, typing: typing.results },
     {
       headers: {
         "cache-control": "private, no-store",
@@ -70,14 +77,27 @@ export async function POST(request: Request) {
   }
 
   const orderId = String(input.orderId ?? "").trim();
-  const body = String(input.body ?? "").trim();
-  const requestedId = String(input.clientMessageId ?? "").trim();
   if (!orderId) return reject("Order is required.");
-  if (!body || body.length > 2000) {
-    return reject("Message must be between 1 and 2000 characters.");
-  }
   if (!(await canAccessOrder(actor.id, actor.role, orderId))) {
     return reject("You are not part of this order.", 403);
+  }
+
+  if (input.action === "typing") {
+    const active = Boolean(input.active);
+    await env.DB.prepare(
+      `INSERT INTO chat_presence (id,order_id,user_id,last_typed_at)
+       VALUES (?,?,?,?)
+       ON CONFLICT(order_id,user_id) DO UPDATE SET last_typed_at=excluded.last_typed_at`,
+    )
+      .bind(`${orderId}:${actor.id}`, orderId, actor.id, active ? Date.now() : 0)
+      .run();
+    return Response.json({ ok: true });
+  }
+
+  const body = String(input.body ?? "").trim();
+  const requestedId = String(input.clientMessageId ?? "").trim();
+  if (!body || body.length > 2000) {
+    return reject("Message must be between 1 and 2000 characters.");
   }
 
   const id = /^[a-zA-Z0-9_-]{8,100}$/.test(requestedId)
@@ -99,12 +119,12 @@ export async function POST(request: Request) {
   }
 
   const now = Date.now();
-  await env.DB.prepare(
-    `INSERT INTO messages
-      (id, order_id, sender_id, sender_name, sender_role, body, message_type, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'text', ?)`,
-  )
-    .bind(
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO messages
+        (id, order_id, sender_id, sender_name, sender_role, body, message_type, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'text', ?)`,
+    ).bind(
       id,
       orderId,
       actor.id,
@@ -112,8 +132,9 @@ export async function POST(request: Request) {
       actor.role,
       body,
       now,
-    )
-    .run();
+    ),
+    messageNotification(orderId, actor.id, actor.displayName, body, now),
+  ]);
 
   return Response.json({
     message: {
@@ -128,6 +149,36 @@ export async function POST(request: Request) {
       delivery_status: "sent",
     },
   });
+}
+
+function messageNotification(
+  orderId: string,
+  senderId: string,
+  senderName: string,
+  body: string,
+  createdAt: number,
+) {
+  return env.DB.prepare(
+    `INSERT INTO notifications (id,user_id,type,title,body,link,created_at)
+     SELECT lower(hex(randomblob(16))), participants.user_id, 'message', ?, ?, '/dashboard', ?
+     FROM (
+       SELECT o.customer_id AS user_id FROM orders o WHERE o.id=?
+       UNION
+       SELECT v.owner_id FROM orders o JOIN vendors v ON v.id=o.vendor_id WHERE o.id=?
+       UNION
+       SELECT d.courier_id FROM deliveries d WHERE d.order_id=? AND d.courier_id IS NOT NULL
+     ) participants
+     JOIN users u ON u.id=participants.user_id
+     WHERE participants.user_id!=? AND u.notification_preferences='all'`,
+  ).bind(
+    `${senderName} sent a message`,
+    body.slice(0, 180),
+    createdAt,
+    orderId,
+    orderId,
+    orderId,
+    senderId,
+  );
 }
 
 function reject(message: string, status = 400) {

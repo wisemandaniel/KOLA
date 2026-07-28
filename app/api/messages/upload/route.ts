@@ -95,13 +95,13 @@ export async function POST(request: Request) {
   });
 
   try {
-    await env.DB.prepare(
-      `INSERT INTO messages
-        (id, order_id, sender_id, sender_name, sender_role, body, message_type,
-         media_key, media_type, media_size, duration_ms, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO messages
+          (id, order_id, sender_id, sender_name, sender_role, body, message_type,
+           media_key, media_type, media_size, duration_ms, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
         messageId,
         orderId,
         actor.id,
@@ -114,8 +114,29 @@ export async function POST(request: Request) {
         file.size,
         durationMs,
         now,
-      )
-      .run();
+      ),
+      env.DB.prepare(
+        `INSERT INTO notifications (id,user_id,type,title,body,link,created_at)
+         SELECT lower(hex(randomblob(16))), participants.user_id, 'message', ?, ?, '/dashboard', ?
+         FROM (
+           SELECT o.customer_id AS user_id FROM orders o WHERE o.id=?
+           UNION
+           SELECT v.owner_id FROM orders o JOIN vendors v ON v.id=o.vendor_id WHERE o.id=?
+           UNION
+           SELECT d.courier_id FROM deliveries d WHERE d.order_id=? AND d.courier_id IS NOT NULL
+         ) participants
+         JOIN users u ON u.id=participants.user_id
+         WHERE participants.user_id!=? AND u.notification_preferences='all'`,
+      ).bind(
+        `${actor.displayName} sent ${isImage ? "a photo" : "a voice note"}`,
+        caption || (isImage ? "Photo" : "Voice note"),
+        now,
+        orderId,
+        orderId,
+        orderId,
+        actor.id,
+      ),
+    ]);
   } catch (error) {
     await mediaBucket.delete(mediaKey);
     throw error;

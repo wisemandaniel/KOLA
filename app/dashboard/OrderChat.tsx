@@ -91,6 +91,7 @@ export default function OrderChat({
   const [viewerUrl, setViewerUrl] = useState("");
   const [unread, setUnread] = useState(0);
   const [atBottom, setAtBottom] = useState(true);
+  const [typingNames, setTypingNames] = useState<string[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -132,6 +133,7 @@ export default function OrderChat({
         );
         const result = (await response.json()) as {
           messages?: Record<string, unknown>[];
+          typing?: Record<string, unknown>[];
           error?: string;
         };
         if (!response.ok) throw new Error(result.error ?? "Conversation unavailable.");
@@ -142,6 +144,11 @@ export default function OrderChat({
             !knownIdsRef.current.has(message.id) && message.senderId !== actorId,
         ).length;
         incoming.forEach((message) => knownIdsRef.current.add(message.id));
+        setTypingNames(
+          (result.typing ?? [])
+            .map((item) => String(item.display_name ?? ""))
+            .filter(Boolean),
+        );
         if (!firstSyncRef.current && freshIncoming && !atBottomRef.current) {
           setUnread((count) => count + freshIncoming);
         }
@@ -210,6 +217,21 @@ export default function OrderChat({
       field.style.height = `${Math.min(field.scrollHeight, 112)}px`;
     }
   }, [draft, orderId]);
+
+  const typingActive = Boolean(draft.trim());
+  useEffect(() => {
+    const update = () => {
+      void fetch("/api/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "typing", orderId, active: typingActive }),
+      }).catch(() => undefined);
+    };
+    update();
+    if (!typingActive) return;
+    const timer = window.setInterval(update, 2200);
+    return () => window.clearInterval(timer);
+  }, [orderId, typingActive]);
 
   useEffect(() => {
     if (!recording) return;
@@ -492,7 +514,11 @@ export default function OrderChat({
           <div className="wa-avatar">{orderId.slice(-2).toUpperCase()}</div>
           <div className="wa-chat-title">
             <h2>Order {orderId}</h2>
-            <span>Customer, vendor &amp; rider</span>
+            <span className={typingNames.length ? "typing" : ""}>
+              {typingNames.length
+                ? `${typingNames.slice(0, 2).join(" and ")} typing…`
+                : "Customer, vendor & rider"}
+            </span>
           </div>
           <div className="wa-header-actions">
             <OrderCall orderId={orderId} actorId={actorId} onNotice={onNotice} />

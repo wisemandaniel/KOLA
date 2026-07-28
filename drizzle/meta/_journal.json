@@ -43,6 +43,20 @@
       "when": 1785254452217,
       "tag": "0005_abandoned_ultragirl",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785257656559,
+      "tag": "0006_bored_karen_page",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785258115278,
+      "tag": "0007_bouncy_timeslip",
+      "breakpoints": true
     }
   ]
 }

@@ -26,15 +26,38 @@ async function canAccessOrder(userId: string, role: string, orderId: string) {
   return false;
 }
 
+function notificationStatement(
+  userId: unknown,
+  type: string,
+  title: string,
+  body: string,
+  href: string | null,
+  now: number,
+) {
+  return env.DB.prepare(
+    `INSERT INTO notifications
+      (id,user_id,type,title,body,href,created_at)
+     VALUES (?,?,?,?,?,?,?)`,
+  ).bind(
+    crypto.randomUUID(),
+    String(userId),
+    type,
+    title,
+    body,
+    href,
+    now,
+  );
+}
+
 export async function GET() {
   const actor = await requireActor();
   if (!actor) return reject("Authentication required", 401);
   const db = env.DB;
   const role = String(actor.active_role);
   const actorId = String(actor.id);
-  let orders; let deliveries;
+  let orders; let deliveries; let vendor: Row | null = null;
   if (role === "vendor") {
-    const vendor = await ownedVendor(String(actor.id));
+    vendor = await ownedVendor(String(actor.id));
     orders = vendor ? await db.prepare("SELECT * FROM orders WHERE vendor_id=? ORDER BY created_at DESC LIMIT 100").bind(vendor.id).all() : { results: [] };
     deliveries = vendor ? await db.prepare("SELECT d.* FROM deliveries d JOIN orders o ON d.order_id=o.id WHERE o.vendor_id=? ORDER BY o.created_at DESC").bind(vendor.id).all() : { results: [] };
   } else if (role === "rider") {
@@ -44,8 +67,16 @@ export async function GET() {
     orders = await db.prepare("SELECT * FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100").bind(actor.id).all();
     deliveries = await db.prepare("SELECT d.* FROM deliveries d JOIN orders o ON d.order_id=o.id WHERE o.customer_id=? ORDER BY o.created_at DESC").bind(actor.id).all();
   }
+  const productStatement =
+    role === "vendor" && vendor
+      ? db.prepare(`SELECT p.*,v.name AS vendor_name,v.slug AS vendor_slug
+          FROM products p JOIN vendors v ON p.vendor_id=v.id
+          WHERE p.vendor_id=? ORDER BY p.created_at DESC`).bind(vendor.id)
+      : db.prepare(`SELECT p.*,v.name AS vendor_name,v.slug AS vendor_slug
+          FROM products p JOIN vendors v ON p.vendor_id=v.id
+          WHERE p.active=1 AND v.status='active' ORDER BY p.created_at DESC`);
   const [products, vendors, addresses, messages] = await db.batch([
-    db.prepare("SELECT p.*,v.name AS vendor_name FROM products p JOIN vendors v ON p.vendor_id=v.id WHERE p.active=1 AND v.status='active' ORDER BY p.created_at DESC"),
+    productStatement,
     db.prepare("SELECT id,name,slug,category,address,city,rating FROM vendors WHERE status='active'"),
     db.prepare("SELECT * FROM addresses WHERE user_id=? ORDER BY is_default DESC,created_at DESC").bind(actor.id),
     db.prepare(`SELECT m.* FROM messages m WHERE m.order_id IN (
@@ -64,7 +95,7 @@ export async function GET() {
       UNION SELECT order_id FROM deliveries WHERE courier_id=?
     )`).bind(actorId, Date.now(), actorId, actorId, actorId, actorId).run();
   return Response.json({
-    actor: { id: actor.id, email: actor.email, displayName: actor.display_name, activeRole: role, language: actor.language, city: actor.city, onboardingComplete: !!actor.onboarding_complete, authProvider: actor._auth_provider },
+    actor: { id: actor.id, email: actor.email, phone: actor.phone, displayName: actor.display_name, activeRole: role, language: actor.language, city: actor.city, onboardingComplete: !!actor.onboarding_complete, authProvider: actor._auth_provider, vendorId: vendor?.id, vendorSlug: vendor?.slug, isAdmin: !!actor.is_admin },
     products: products.results, vendors: vendors.results, orders: orders.results, deliveries: deliveries.results, messages: messages.results, addresses: addresses.results,
   });
 }
@@ -110,14 +141,57 @@ export async function POST(request: Request) {
     const name = String(body.name ?? "").trim(); const price = Math.round(Number(body.price)); const stock = Math.max(0, Math.round(Number(body.stock ?? 0)));
     if (!name || !Number.isFinite(price) || price < 50) return reject("Enter a valid product name and price");
     const id = crypto.randomUUID();
-    await db.prepare("INSERT INTO products (id,vendor_id,name,description,category,price,stock,emoji,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .bind(id, vendor.id, name, String(body.description ?? ""), String(body.category ?? "Other"), price, stock, "", 1, now).run();
+    await db.prepare("INSERT INTO products (id,vendor_id,name,description,category,price,stock,emoji,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .bind(id, vendor.id, name, String(body.description ?? "").trim().slice(0,1000), String(body.category ?? "Other"), price, stock, "", 1, now, now).run();
     return Response.json({ id });
+  }
+
+  if (action === "update_product") {
+    if (role !== "vendor") return reject("Vendor account required", 403);
+    const vendor = await ownedVendor(userId);
+    const id = String(body.id ?? "");
+    const name = String(body.name ?? "").trim();
+    const price = Math.round(Number(body.price));
+    const stock = Math.max(0, Math.round(Number(body.stock ?? 0)));
+    if (!vendor || !id || !name || !Number.isFinite(price) || price < 50) {
+      return reject("Enter valid product details.");
+    }
+    const result = await db.prepare(
+      `UPDATE products SET name=?,description=?,category=?,price=?,stock=?,updated_at=?
+       WHERE id=? AND vendor_id=?`,
+    )
+      .bind(
+        name,
+        String(body.description ?? "").trim().slice(0, 1000),
+        String(body.category ?? "Other"),
+        price,
+        stock,
+        now,
+        id,
+        vendor.id,
+      )
+      .run();
+    if (!result.meta.changes) return reject("Product not found.", 404);
+    return Response.json({ id });
+  }
+
+  if (action === "toggle_product") {
+    if (role !== "vendor") return reject("Vendor account required", 403);
+    const vendor = await ownedVendor(userId);
+    const result = await db.prepare(
+      `UPDATE products SET active=CASE active WHEN 1 THEN 0 ELSE 1 END,updated_at=?
+       WHERE id=? AND vendor_id=?`,
+    )
+      .bind(now, String(body.id ?? ""), vendor?.id ?? "")
+      .run();
+    if (!result.meta.changes) return reject("Product not found.", 404);
+    return Response.json({ ok: true });
   }
 
   if (action === "create_order") {
     if (role !== "customer") return reject("Customer account required", 403);
-    const requested = Array.isArray(body.items) ? body.items as Row[] : []; if (!requested.length) return reject("Your cart is empty");
+    const requested = Array.isArray(body.items) ? body.items as Row[] : [];
+    if (!requested.length) return reject("Your cart is empty");
     const verified: { id:string;name:string;price:number;quantity:number;vendorId:string }[] = [];
     for (const item of requested.slice(0,50)) {
       const product = await db.prepare("SELECT id,name,price,stock,vendor_id FROM products WHERE id=? AND active=1").bind(String(item.id)).first<Row>();
@@ -125,21 +199,89 @@ export async function POST(request: Request) {
       if (!product || Number(product.stock) < quantity) return reject(`${String(product?.name ?? "A product")} is unavailable`);
       verified.push({ id:String(product.id),name:String(product.name),price:Number(product.price),quantity,vendorId:String(product.vendor_id) });
     }
-    if (new Set(verified.map(i=>i.vendorId)).size !== 1) return reject("MVP checkout supports one vendor per order");
-    const address = String(body.address ?? "").trim(); if (address.length < 5) return reject("Enter a delivery address");
-    const subtotal = verified.reduce((sum,i)=>sum+i.price*i.quantity,0); const deliveryFee=1500; const id=`KL-${Date.now().toString().slice(-6)}`;
-    await db.prepare("INSERT INTO orders (id,customer_id,vendor_id,status,subtotal,delivery_fee,total,payment_method,payment_status,delivery_address,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .bind(id,userId,verified[0].vendorId,"pending",subtotal,deliveryFee,subtotal+deliveryFee,"cash","pending",address,String(body.notes??""),now,now).run();
+    const address = String(body.address ?? "").trim();
+    if (address.length < 5) return reject("Enter a delivery address");
+    const deliveryLat = body.latitude == null ? null : Number(body.latitude);
+    const deliveryLng = body.longitude == null ? null : Number(body.longitude);
+    const promotionCode = String(body.promotionCode ?? "").trim().toUpperCase();
+    const groups = new Map<string, typeof verified>();
     for (const item of verified) {
-      await db.prepare("INSERT INTO order_items (id,order_id,product_id,name,quantity,unit_price) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(),id,item.id,item.name,item.quantity,item.price).run();
-      await db.prepare("UPDATE products SET stock=stock-? WHERE id=? AND stock>=?").bind(item.quantity,item.id,item.quantity).run();
+      groups.set(item.vendorId, [...(groups.get(item.vendorId) ?? []), item]);
     }
-    const vendor=await db.prepare("SELECT address,city FROM vendors WHERE id=?").bind(verified[0].vendorId).first<Row>();
-    const trackingToken=crypto.randomUUID().replaceAll("-","");
-    await db.prepare("INSERT INTO deliveries (id,order_id,tracking_token,status,pickup_address,dropoff_address,distance_km,courier_fee,pickup_code,delivery_code) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .bind(crypto.randomUUID(),id,trackingToken,"unassigned",String(vendor?.address??vendor?.city??"Vendor"),address,0,deliveryFee,String(Math.floor(1000+Math.random()*9000)),String(Math.floor(1000+Math.random()*9000))).run();
-    await db.prepare("INSERT INTO payments (id,order_id,provider,amount,status,created_at) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(),id,"cash",subtotal+deliveryFee,"pending",now).run();
-    return Response.json({ id,total:subtotal+deliveryFee,trackingToken });
+
+    const statements = [];
+    const created: { id:string;total:number;trackingToken:string;vendorId:string }[] = [];
+    for (const [vendorId, items] of groups) {
+      const vendor = await db.prepare(
+        "SELECT id,owner_id,address,city FROM vendors WHERE id=? AND status='active'",
+      ).bind(vendorId).first<Row>();
+      if (!vendor) return reject("A selected store is unavailable.");
+      const subtotal = items.reduce((sum,item)=>sum+item.price*item.quantity,0);
+      let discount = 0;
+      let appliedCode: string | null = null;
+      let promotionId: string | null = null;
+      if (promotionCode) {
+        const promotion = await db.prepare(
+          `SELECT * FROM promotions WHERE vendor_id=? AND code=? AND active=1
+           AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)
+           AND (usage_limit IS NULL OR usage_count<usage_limit)`,
+        ).bind(vendorId,promotionCode,now,now).first<Row>();
+        if (promotion && subtotal >= Number(promotion.minimum_order ?? 0)) {
+          discount = String(promotion.discount_type) === "fixed"
+            ? Number(promotion.discount_value)
+            : Math.round(subtotal * Number(promotion.discount_value) / 100);
+          discount = Math.max(0,Math.min(discount,subtotal-50));
+          appliedCode = promotionCode;
+          promotionId = String(promotion.id);
+        }
+      }
+      const deliveryFee = 1500;
+      const total = subtotal - discount + deliveryFee;
+      const id = `KL-${Date.now().toString().slice(-4)}${crypto.randomUUID().slice(0,2).toUpperCase()}`;
+      const trackingToken = crypto.randomUUID().replaceAll("-","");
+      const pickupRandom = crypto.getRandomValues(new Uint32Array(1))[0];
+      const deliveryRandom = crypto.getRandomValues(new Uint32Array(1))[0];
+      statements.push(
+        db.prepare(`INSERT INTO orders
+          (id,customer_id,vendor_id,status,subtotal,discount,promotion_code,delivery_fee,total,
+           payment_method,payment_status,delivery_address,delivery_lat,delivery_lng,notes,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .bind(id,userId,vendorId,"pending",subtotal,discount,appliedCode,deliveryFee,total,
+            "cash","pending",address,deliveryLat,deliveryLng,String(body.notes??""),now,now),
+        db.prepare(`INSERT INTO deliveries
+          (id,order_id,tracking_token,status,pickup_address,dropoff_address,distance_km,courier_fee,pickup_code,delivery_code)
+          VALUES (?,?,?,?,?,?,?,?,?,?)`)
+          .bind(crypto.randomUUID(),id,trackingToken,"unassigned",
+            String(vendor.address??vendor.city??"Vendor"),address,0,deliveryFee,
+            String(1000+(pickupRandom%9000)),String(1000+(deliveryRandom%9000))),
+        db.prepare("INSERT INTO payments (id,order_id,provider,amount,status,created_at) VALUES (?,?,?,?,?,?)")
+          .bind(crypto.randomUUID(),id,"cash",total,"pending",now),
+        notificationStatement(vendor.owner_id,"order","New order received",
+          `Order ${id} is ready for review.`,"/dashboard",now),
+      );
+      for (const item of items) {
+        statements.push(
+          db.prepare("INSERT INTO order_items (id,order_id,product_id,name,quantity,unit_price) VALUES (?,?,?,?,?,?)")
+            .bind(crypto.randomUUID(),id,item.id,item.name,item.quantity,item.price),
+          db.prepare("UPDATE products SET stock=stock-?,updated_at=? WHERE id=? AND stock>=?")
+            .bind(item.quantity,now,item.id,item.quantity),
+        );
+      }
+      if (promotionId) {
+        statements.push(db.prepare(
+          "UPDATE promotions SET usage_count=usage_count+1 WHERE id=?",
+        ).bind(promotionId));
+      }
+      created.push({id,total,trackingToken,vendorId});
+    }
+    await db.batch(statements);
+    return Response.json({
+      id:created[0].id,
+      ids:created.map(order=>order.id),
+      total:created.reduce((sum,order)=>sum+order.total,0),
+      orders:created,
+      split:created.length>1,
+    });
   }
 
   if (action === "update_order") {
@@ -148,7 +290,43 @@ export async function POST(request: Request) {
     if (!vendor || !["accepted","preparing","ready","rejected"].includes(status)) return reject("Invalid order update");
     const result=await db.prepare("UPDATE orders SET status=?,updated_at=? WHERE id=? AND vendor_id=?").bind(status,now,orderId,vendor.id).run();
     if (!result.meta.changes) return reject("Order not found",404);
+    const order = await db.prepare("SELECT customer_id FROM orders WHERE id=?").bind(orderId).first<Row>();
+    if (order?.customer_id) {
+      await notificationStatement(order.customer_id,"order","Order updated",
+        `Order ${orderId} is now ${status.replaceAll("_"," ")}.`,"/dashboard",now).run();
+    }
     return Response.json({status});
+  }
+
+  if (action === "cancel_order") {
+    if (role !== "customer") return reject("Customer account required", 403);
+    const orderId = String(body.orderId ?? "");
+    const reason = String(body.reason ?? "Customer cancelled").trim().slice(0, 300);
+    const order = await db.prepare(
+      "SELECT id,vendor_id FROM orders WHERE id=? AND customer_id=? AND status='pending'",
+    ).bind(orderId,userId).first<Row>();
+    if (!order) return reject("Only pending orders can be cancelled.", 409);
+    const items = await db.prepare(
+      "SELECT product_id,quantity FROM order_items WHERE order_id=?",
+    ).bind(orderId).all<Row>();
+    const vendor = await db.prepare("SELECT owner_id FROM vendors WHERE id=?")
+      .bind(order.vendor_id).first<Row>();
+    const statements = [
+      db.prepare("UPDATE orders SET status='cancelled',cancellation_reason=?,cancelled_at=?,updated_at=? WHERE id=?")
+        .bind(reason,now,now,orderId),
+      db.prepare("UPDATE deliveries SET status='cancelled' WHERE order_id=?").bind(orderId),
+    ];
+    for (const item of items.results) {
+      statements.push(db.prepare(
+        "UPDATE products SET stock=stock+?,updated_at=? WHERE id=?",
+      ).bind(item.quantity,now,item.product_id));
+    }
+    if (vendor?.owner_id) {
+      statements.push(notificationStatement(vendor.owner_id,"order","Order cancelled",
+        `Order ${orderId} was cancelled by the customer.`,"/dashboard",now));
+    }
+    await db.batch(statements);
+    return Response.json({status:"cancelled"});
   }
 
   if (action === "accept_delivery") {
@@ -156,6 +334,19 @@ export async function POST(request: Request) {
     const id=String(body.deliveryId??"");
     const result=await db.prepare("UPDATE deliveries SET courier_id=?,status='accepted',accepted_at=? WHERE id=? AND status='unassigned' AND courier_id IS NULL").bind(userId,now,id).run();
     if (!result.meta.changes) return reject("Delivery is no longer available",409);
+    const order = await db.prepare(
+      `SELECT o.id,o.customer_id,v.owner_id FROM orders o
+       JOIN deliveries d ON d.order_id=o.id JOIN vendors v ON v.id=o.vendor_id
+       WHERE d.id=?`,
+    ).bind(id).first<Row>();
+    if (order) {
+      await db.batch([
+        notificationStatement(order.customer_id,"delivery","Rider assigned",
+          `A rider accepted delivery for order ${String(order.id)}.`,"/dashboard",now),
+        notificationStatement(order.owner_id,"delivery","Rider assigned",
+          `A rider accepted order ${String(order.id)}.`,"/dashboard",now),
+      ]);
+    }
     return Response.json({status:"accepted"});
   }
 
@@ -171,7 +362,22 @@ export async function POST(request: Request) {
     const status=String(body.status??""); if (!["arrived_pickup","picked_up","arrived_dropoff","delivered","failed"].includes(status)) return reject("Invalid delivery status");
     await db.prepare("UPDATE deliveries SET status=?,picked_up_at=CASE WHEN ?='picked_up' THEN ? ELSE picked_up_at END,delivered_at=CASE WHEN ?='delivered' THEN ? ELSE delivered_at END WHERE id=?").bind(status,status,now,status,now,id).run();
     await db.prepare("INSERT INTO tracking_events (id,delivery_id,event_type,label,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),id,status,status.replaceAll("_"," "),now).run();
-    if(status==="delivered"){await db.prepare("UPDATE orders SET status='delivered',updated_at=? WHERE id=(SELECT order_id FROM deliveries WHERE id=?)").bind(now,id).run();await db.prepare("UPDATE courier_profiles SET completed_deliveries=completed_deliveries+1 WHERE user_id=?").bind(userId).run();}
+    if(status==="delivered"){
+      await db.prepare("UPDATE orders SET status='delivered',updated_at=? WHERE id=(SELECT order_id FROM deliveries WHERE id=?)").bind(now,id).run();
+      await db.prepare("UPDATE courier_profiles SET completed_deliveries=completed_deliveries+1 WHERE user_id=?").bind(userId).run();
+      const order = await db.prepare(
+        `SELECT o.id,o.customer_id,v.owner_id FROM orders o JOIN vendors v ON v.id=o.vendor_id
+         WHERE o.id=(SELECT order_id FROM deliveries WHERE id=?)`,
+      ).bind(id).first<Row>();
+      if (order) {
+        await db.batch([
+          notificationStatement(order.customer_id,"delivery","Order delivered",
+            `Order ${String(order.id)} has been delivered.`,"/dashboard",now),
+          notificationStatement(order.owner_id,"delivery","Delivery completed",
+            `Order ${String(order.id)} was delivered successfully.`,"/dashboard",now),
+        ]);
+      }
+    }
     return Response.json({status});
   }
 

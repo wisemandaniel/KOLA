@@ -8,6 +8,8 @@ export const users = sqliteTable("users", {
   activeRole: text("active_role").notNull().default("customer"),
   language: text("language").notNull().default("en"),
   city: text("city"),
+  isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+  notificationPreferences: text("notification_preferences").notNull().default("all"),
   onboardingComplete: integer("onboarding_complete", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull(),
 });
@@ -93,8 +95,10 @@ export const products = sqliteTable("products", {
   price: integer("price").notNull(),
   stock: integer("stock").notNull().default(0),
   emoji: text("emoji").notNull().default("📦"),
+  imageKey: text("image_key"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at"),
 });
 
 export const orders = sqliteTable("orders", {
@@ -103,6 +107,8 @@ export const orders = sqliteTable("orders", {
   vendorId: text("vendor_id").notNull(),
   status: text("status").notNull().default("pending"),
   subtotal: integer("subtotal").notNull(),
+  discount: integer("discount").notNull().default(0),
+  promotionCode: text("promotion_code"),
   deliveryFee: integer("delivery_fee").notNull(),
   total: integer("total").notNull(),
   paymentMethod: text("payment_method").notNull(),
@@ -111,6 +117,8 @@ export const orders = sqliteTable("orders", {
   deliveryLat: real("delivery_lat"),
   deliveryLng: real("delivery_lng"),
   notes: text("notes").notNull().default(""),
+  cancellationReason: text("cancellation_reason"),
+  cancelledAt: integer("cancelled_at"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -181,6 +189,16 @@ export const messageReceipts = sqliteTable("message_receipts", {
   index("message_receipt_message_idx").on(table.messageId),
 ]);
 
+export const chatPresence = sqliteTable("chat_presence", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  userId: text("user_id").notNull(),
+  lastTypedAt: integer("last_typed_at").notNull(),
+}, (table) => [
+  uniqueIndex("chat_presence_order_user_unique").on(table.orderId, table.userId),
+  index("chat_presence_order_typed_idx").on(table.orderId, table.lastTypedAt),
+]);
+
 export const voiceCalls = sqliteTable("voice_calls", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
@@ -227,4 +245,109 @@ export const reviews = sqliteTable("reviews", {
   rating: integer("rating").notNull(),
   comment: text("comment").notNull().default(""),
   createdAt: integer("created_at").notNull(),
-});
+}, (table) => [
+  uniqueIndex("review_order_author_subject_unique").on(
+    table.orderId,
+    table.authorId,
+    table.subjectType,
+  ),
+]);
+
+export const promotions = sqliteTable("promotions", {
+  id: text("id").primaryKey(),
+  vendorId: text("vendor_id").notNull(),
+  code: text("code").notNull(),
+  discountType: text("discount_type").notNull().default("percentage"),
+  discountValue: integer("discount_value").notNull(),
+  minimumOrder: integer("minimum_order").notNull().default(0),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  startsAt: integer("starts_at").notNull(),
+  endsAt: integer("ends_at"),
+  usageLimit: integer("usage_limit"),
+  usageCount: integer("usage_count").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("promotion_vendor_code_unique").on(table.vendorId, table.code),
+  index("promotion_code_active_idx").on(table.code, table.active),
+]);
+
+export const notifications = sqliteTable("notifications", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  href: text("href"),
+  readAt: integer("read_at"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("notification_user_created_idx").on(table.userId, table.createdAt),
+]);
+
+export const supportTickets = sqliteTable("support_tickets", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  orderId: text("order_id"),
+  category: text("category").notNull(),
+  subject: text("subject").notNull(),
+  description: text("description").notNull(),
+  priority: text("priority").notNull().default("normal"),
+  status: text("status").notNull().default("open"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("support_ticket_user_created_idx").on(table.userId, table.createdAt),
+  index("support_ticket_status_idx").on(table.status),
+]);
+
+export const supportMessages = sqliteTable("support_messages", {
+  id: text("id").primaryKey(),
+  ticketId: text("ticket_id").notNull(),
+  senderId: text("sender_id").notNull(),
+  body: text("body").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("support_message_ticket_idx").on(table.ticketId, table.createdAt),
+]);
+
+export const paymentAttempts = sqliteTable("payment_attempts", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  phone: text("phone"),
+  amount: integer("amount").notNull(),
+  status: text("status").notNull().default("pending"),
+  providerReference: text("provider_reference"),
+  failureReason: text("failure_reason"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("payment_attempt_order_idx").on(table.orderId, table.createdAt),
+  index("payment_attempt_user_idx").on(table.userId, table.createdAt),
+]);
+
+export const courierVerificationRequests = sqliteTable("courier_verification_requests", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  documentType: text("document_type").notNull(),
+  documentKey: text("document_key").notNull(),
+  status: text("status").notNull().default("submitted"),
+  reviewNote: text("review_note"),
+  createdAt: integer("created_at").notNull(),
+  reviewedAt: integer("reviewed_at"),
+}, (table) => [
+  index("courier_verification_user_idx").on(table.userId, table.createdAt),
+]);
+
+export const auditLogs = sqliteTable("audit_logs", {
+  id: text("id").primaryKey(),
+  actorId: text("actor_id").notNull(),
+  action: text("action").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  metadata: text("metadata").notNull().default("{}"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("audit_log_created_idx").on(table.createdAt),
+]);

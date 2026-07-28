@@ -1,0 +1,19 @@
+{
+  "name": "Kola — Cameroon commerce and delivery",
+  "short_name": "Kola",
+  "description": "Order locally, manage a storefront, and coordinate delivery in Cameroon.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f7f8fa",
+  "theme_color": "#0082e6",
+  "orientation": "portrait-primary",
+  "categories": ["shopping", "business", "navigation"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
