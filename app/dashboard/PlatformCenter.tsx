@@ -24,7 +24,7 @@ import {
   WalletCards,
 } from "lucide-react";
 
-type Role = "customer" | "vendor" | "rider";
+type Role = "customer" | "vendor" | "rider" | "admin" | "superadmin";
 type Row = Record<string, unknown>;
 
 type PlatformData = {
@@ -35,6 +35,7 @@ type PlatformData = {
     language: string;
     notificationPreferences: string;
     isAdmin: boolean;
+    adminLevel: "none" | "admin" | "superadmin";
   };
   addresses: Row[];
   notifications: Row[];
@@ -231,13 +232,48 @@ export function AccountCenter({
   );
 }
 
+export function AdminHome({
+  onNotice,
+}: {
+  onNotice: (message: string) => void;
+}) {
+  const { data, loading, refresh } = usePlatform(onNotice);
+  const [busy, setBusy] = useState(false);
+
+  if (loading || !data) {
+    return (
+      <div className="platform-loading">
+        <Loader2 />
+        Loading platform operations
+      </div>
+    );
+  }
+
+  if (!data.admin) {
+    return <p className="platform-empty">Administrator access is required.</p>;
+  }
+
+  const run = async (action: string, payload: Row, success: string) => {
+    setBusy(true);
+    try {
+      await platformAction(action, payload);
+      onNotice(success);
+      await refresh();
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Action failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <AdminPanel data={data.admin} busy={busy} run={run} standalone />;
+}
+
 export function PaymentCenter({
   orders,
-  phone,
   onNotice,
 }: {
   orders: OrderLite[];
-  phone?: string;
   onNotice: (message: string) => void;
 }) {
   const { data, loading, refresh } = usePlatform(onNotice);
@@ -245,8 +281,6 @@ export function PaymentCenter({
     (order) => order.payment_status !== "paid" && order.status !== "cancelled",
   );
   const [orderId, setOrderId] = useState(pending[0]?.id ?? "");
-  const [provider, setProvider] = useState("mtn_momo");
-  const [paymentPhone, setPaymentPhone] = useState(phone ?? "");
   const [busy, setBusy] = useState(false);
 
   if (loading || !data) {
@@ -254,10 +288,7 @@ export function PaymentCenter({
   }
 
   const selected = pending.find((order) => order.id === orderId);
-  const enabled =
-    provider === "mtn_momo"
-      ? data.integrations.mtnMomo
-      : data.integrations.orangeMoney;
+  const enabled = data.integrations.fapshi;
 
   const requestPayment = async () => {
     if (!selected) return;
@@ -265,11 +296,9 @@ export function PaymentCenter({
     try {
       const result = await platformAction("payment_attempt", {
         orderId: selected.id,
-        provider,
-        phone: paymentPhone,
       });
       if (result.activationRequired) {
-        onNotice("Payment provider activation is required before collection can begin.");
+        onNotice("Fapshi activation is required before online collection can begin.");
       } else if (typeof result.checkoutUrl === "string" && result.checkoutUrl) {
         window.location.assign(result.checkoutUrl);
         return;
@@ -295,29 +324,18 @@ export function PaymentCenter({
           </div>
           <Check />
         </article>
-        <button
-          className={`payment-provider ${provider === "mtn_momo" ? "selected" : ""}`}
-          onClick={() => setProvider("mtn_momo")}
-        >
-          <span>MTN</span>
-          <div><b>MTN Mobile Money</b><p>{data.integrations.mtnMomo ? "Connected" : "Activation required"}</p></div>
-          <i className={data.integrations.mtnMomo ? "ready" : ""} />
-        </button>
-        <button
-          className={`payment-provider ${provider === "orange_money" ? "selected" : ""}`}
-          onClick={() => setProvider("orange_money")}
-        >
-          <span>OM</span>
-          <div><b>Orange Money</b><p>{data.integrations.orangeMoney ? "Connected" : "Activation required"}</p></div>
-          <i className={data.integrations.orangeMoney ? "ready" : ""} />
-        </button>
+        <article className={`payment-provider ${enabled ? "selected" : ""}`}>
+          <span>FP</span>
+          <div><b>Fapshi Mobile Money</b><p>{enabled ? "MTN and Orange checkout connected" : "Activation required"}</p></div>
+          <i className={enabled ? "ready" : ""} />
+        </article>
       </div>
 
       <div className="payment-request-card">
         <div>
           <span>MOBILE MONEY REQUEST</span>
           <h3>Collect payment for an order</h3>
-          <p>Payment requests remain disabled until the selected provider is securely activated.</p>
+          <p>Customers complete MTN MoMo or Orange Money payment on Fapshi&apos;s secure checkout.</p>
         </div>
         <label>
           Order
@@ -330,17 +348,9 @@ export function PaymentCenter({
             ))}
           </select>
         </label>
-        <label>
-          Mobile number
-          <input
-            value={paymentPhone}
-            onChange={(event) => setPaymentPhone(event.target.value)}
-            placeholder="+237 6XX XXX XXX"
-          />
-        </label>
         <button
           className="primary-button"
-          disabled={busy || !selected || paymentPhone.replace(/\D/g, "").length < 12}
+          disabled={busy || !selected}
           onClick={requestPayment}
         >
           {busy ? <Loader2 /> : <CircleDollarSign />}
@@ -360,7 +370,7 @@ export function PaymentCenter({
               </div>
               <strong>{Number(attempt.amount).toLocaleString()} FCFA</strong>
               <em>{String(attempt.status).replaceAll("_", " ")}</em>
-              {String(attempt.provider) === "mtn_momo" &&
+              {String(attempt.provider) === "fapshi" &&
                 ["pending_provider", "initiating"].includes(String(attempt.status)) && (
                   <button
                     className="secondary-button small"
@@ -393,7 +403,14 @@ export function PaymentCenter({
 
 function AnalyticsPanel({ role, analytics }: { role: Role; analytics: Row }) {
   const cards =
-    role === "vendor"
+    role === "admin" || role === "superadmin"
+      ? [
+          ["Platform orders", analytics.orders ?? 0],
+          ["Paid volume", `${Number(analytics.revenue ?? 0).toLocaleString()} FCFA`],
+          ["Active orders", analytics.active_orders ?? 0],
+          ["Delivered", analytics.delivered ?? 0],
+        ]
+      : role === "vendor"
       ? [
           ["Total orders", analytics.orders ?? 0],
           ["Paid revenue", `${Number(analytics.revenue ?? 0).toLocaleString()} FCFA`],
@@ -678,10 +695,8 @@ function VerificationPanel({ requests, onNotice, refresh }: { requests: Row[]; o
 function IntegrationPanel({ integrations }: { integrations: Record<string, boolean> }) {
   const items = [
     ["Cash on delivery", "cash", "Available"],
-    ["MTN Mobile Money", "mtnMomo", "Payment credentials"],
-    ["Orange Money", "orangeMoney", "Payment credentials"],
-    ["Google sign-in", "google", "OAuth credentials"],
-    ["Facebook sign-in", "facebook", "OAuth credentials"],
+    ["Fapshi payments", "fapshi", "API User and API Key"],
+    ["WhatsApp sign-in", "whatsapp", "WaSender credentials"],
     ["Push notifications", "push", "Web Push credentials"],
     ["OpenStreetMap tracking", "maps", "Map rendering"],
     ["Route optimisation", "routeOptimization", "Routing provider key"],
@@ -698,18 +713,215 @@ function IntegrationPanel({ integrations }: { integrations: Record<string, boole
   );
 }
 
-function AdminPanel({ data, busy, run }: { data: Row; busy: boolean; run: (action: string, payload: Row, success: string) => void }) {
-  const cards = [["Users", data.users], ["Active vendors", data.vendors], ["Orders", data.orders], ["Open tickets", data.openTickets], ["Rider reviews", data.pendingRiders]];
+function AdminPanel({
+  data,
+  busy,
+  run,
+  standalone = false,
+}: {
+  data: Row;
+  busy: boolean;
+  run: (action: string, payload: Row, success: string) => void;
+  standalone?: boolean;
+}) {
+  const level = String(data.level ?? "admin");
+  const cards = [
+    ["Users", data.users],
+    ["Active vendors", data.vendors],
+    ["Orders", data.orders],
+    ["Paid volume", `${Number(data.revenue ?? 0).toLocaleString()} FCFA`],
+    ["Open tickets", data.openTickets],
+    ["Rider reviews", data.pendingRiders],
+  ];
+  const users = Array.isArray(data.userRows) ? data.userRows as Row[] : [];
+  const vendors = Array.isArray(data.vendorRows) ? data.vendorRows as Row[] : [];
+  const orders = Array.isArray(data.orderRows) ? data.orderRows as Row[] : [];
+  const payments = Array.isArray(data.paymentRows) ? data.paymentRows as Row[] : [];
+  const deliveries = Array.isArray(data.deliveryRows) ? data.deliveryRows as Row[] : [];
   const tickets = Array.isArray(data.tickets) ? data.tickets as Row[] : [];
   const verifications = Array.isArray(data.verifications) ? data.verifications as Row[] : [];
+  const audit = Array.isArray(data.auditRows) ? data.auditRows as Row[] : [];
   return (
-    <>
-      <PanelHeading title="Administration" text="Protected operational oversight for authorised Kola administrators." />
+    <div className={standalone ? "admin-console standalone" : "admin-console"}>
+      <PanelHeading
+        title={level === "superadmin" ? "Superadmin command centre" : "Administration"}
+        text="Protected control of Kola users, vendors, orders, deliveries, payments and support."
+        action={<span className="admin-level-badge">{level}</span>}
+      />
       <div className="admin-export-row">
         <div><b>Business data export</b><p>Download a protected operational snapshot for backup and reconciliation.</p></div>
         <a className="secondary-button small" href="/api/admin/export">Download JSON</a>
       </div>
       <div className="platform-metrics admin">{cards.map(([label, value]) => <article key={String(label)}><span>{String(label)}</span><b>{String(value ?? 0)}</b></article>)}</div>
+
+      <AdminCollection title="Users and access" empty="No users found.">
+        {users.map((user) => (
+          <article key={String(user.id)}>
+            <div>
+              <b>{String(user.display_name)}</b>
+              <span>{String(user.phone ?? user.email)} · {String(user.city ?? "Cameroon")}</span>
+            </div>
+            <em className={`admin-state ${String(user.account_status)}`}>{String(user.account_status)}</em>
+            {level === "superadmin" ? (
+              <select
+                disabled={busy}
+                value={String(user.admin_level ?? "none")}
+                aria-label={`Administrator role for ${String(user.display_name)}`}
+                onChange={(event) =>
+                  run(
+                    "admin_user_role",
+                    { id: user.id, level: event.target.value },
+                    "Administrator role updated",
+                  )
+                }
+              >
+                <option value="none">{String(user.active_role)}</option>
+                <option value="admin">Admin</option>
+                <option value="superadmin">Superadmin</option>
+              </select>
+            ) : (
+              <span className="admin-role-label">{String(user.active_role)}</span>
+            )}
+            <button
+              className={`secondary-button small ${String(user.account_status) === "active" ? "danger" : ""}`}
+              disabled={busy}
+              onClick={() =>
+                run(
+                  "admin_user_status",
+                  {
+                    id: user.id,
+                    status: String(user.account_status) === "active" ? "suspended" : "active",
+                  },
+                  String(user.account_status) === "active" ? "Account suspended" : "Account restored",
+                )
+              }
+            >
+              {String(user.account_status) === "active" ? "Suspend" : "Restore"}
+            </button>
+          </article>
+        ))}
+      </AdminCollection>
+
+      <AdminCollection title="Vendors" empty="No vendors found.">
+        {vendors.map((vendor) => (
+          <article key={String(vendor.id)}>
+            <div>
+              <b>{String(vendor.name)}</b>
+              <span>{String(vendor.owner_name)} · {String(vendor.city)} · {String(vendor.category)}</span>
+            </div>
+            <em className={`admin-state ${String(vendor.status)}`}>{String(vendor.status)}</em>
+            <a className="secondary-button small" href={`/store/${String(vendor.slug)}`} target="_blank" rel="noreferrer">Open store</a>
+            <button
+              className={`secondary-button small ${String(vendor.status) === "active" ? "danger" : ""}`}
+              disabled={busy}
+              onClick={() =>
+                run(
+                  "admin_vendor_status",
+                  {
+                    id: vendor.id,
+                    status: String(vendor.status) === "active" ? "suspended" : "active",
+                  },
+                  String(vendor.status) === "active" ? "Vendor suspended" : "Vendor restored",
+                )
+              }
+            >
+              {String(vendor.status) === "active" ? "Suspend" : "Restore"}
+            </button>
+          </article>
+        ))}
+      </AdminCollection>
+
+      <AdminCollection title="Orders and payments" empty="No orders found.">
+        {orders.map((order) => (
+          <article key={String(order.id)}>
+            <div>
+              <b>{String(order.id)} · {Number(order.total).toLocaleString()} FCFA</b>
+              <span>{String(order.customer_name)} → {String(order.vendor_name)} · {String(order.delivery_status ?? "not dispatched")}</span>
+            </div>
+            <select
+              disabled={busy}
+              value={String(order.status)}
+              aria-label={`Order status for ${String(order.id)}`}
+              onChange={(event) =>
+                run(
+                  "admin_order_status",
+                  { id: order.id, status: event.target.value },
+                  "Order status updated",
+                )
+              }
+            >
+              {["pending", "accepted", "preparing", "ready", "picked_up", "delivered", "cancelled", "rejected"].map((status) => (
+                <option value={status} key={status}>{status.replaceAll("_", " ")}</option>
+              ))}
+            </select>
+            {level === "superadmin" ? (
+              <select
+                disabled={busy}
+                value={String(order.payment_status)}
+                aria-label={`Payment status for ${String(order.id)}`}
+                onChange={(event) =>
+                  run(
+                    "admin_payment_status",
+                    { orderId: order.id, status: event.target.value },
+                    "Payment status updated",
+                  )
+                }
+              >
+                <option value="pending">Payment pending</option>
+                <option value="paid">Paid</option>
+                <option value="refunded">Refunded</option>
+              </select>
+            ) : (
+              <em className={`admin-state ${String(order.payment_status)}`}>{String(order.payment_status)}</em>
+            )}
+            {order.tracking_token ? (
+              <a className="secondary-button small" href={`/track/${String(order.tracking_token)}`} target="_blank" rel="noreferrer">Track</a>
+            ) : null}
+          </article>
+        ))}
+      </AdminCollection>
+
+      <AdminCollection title="Delivery operations" empty="No deliveries found.">
+        {deliveries.map((delivery) => (
+          <article key={String(delivery.id)}>
+            <div>
+              <b>{String(delivery.order_id)}</b>
+              <span>{String(delivery.courier_name ?? "Unassigned")} · {String(delivery.dropoff_address)}</span>
+            </div>
+            <strong>{Number(delivery.courier_fee ?? 0).toLocaleString()} FCFA</strong>
+            <select
+              disabled={busy}
+              value={String(delivery.status)}
+              aria-label={`Delivery status for ${String(delivery.order_id)}`}
+              onChange={(event) =>
+                run(
+                  "admin_delivery_status",
+                  { id: delivery.id, status: event.target.value },
+                  "Delivery status updated",
+                )
+              }
+            >
+              {["unassigned", "accepted", "picked_up", "delivered", "cancelled"].map((status) => (
+                <option value={status} key={status}>{status.replaceAll("_", " ")}</option>
+              ))}
+            </select>
+          </article>
+        ))}
+      </AdminCollection>
+
+      <AdminCollection title="Fapshi payment activity" empty="No online payment attempts.">
+        {payments.map((payment) => (
+          <article key={String(payment.id)}>
+            <div>
+              <b>{String(payment.order_id)} · {Number(payment.amount).toLocaleString()} FCFA</b>
+              <span>{String(payment.user_name)} · {new Date(Number(payment.created_at)).toLocaleString()}</span>
+            </div>
+            <span className="admin-role-label">{String(payment.provider)}</span>
+            <em className={`admin-state ${String(payment.status)}`}>{String(payment.status).replaceAll("_", " ")}</em>
+          </article>
+        ))}
+      </AdminCollection>
+
       <div className="admin-ticket-list">
         <h3>Recent support tickets</h3>
         {tickets.map((ticket) => (
@@ -733,7 +945,37 @@ function AdminPanel({ data, busy, run }: { data: Row; busy: boolean; run: (actio
         ))}
         {!verifications.length && <p className="platform-empty">No rider documents submitted.</p>}
       </div>
-    </>
+
+      <AdminCollection title="Audit trail" empty="No administrator activity recorded.">
+        {audit.map((entry) => (
+          <article key={String(entry.id)}>
+            <div>
+              <b>{String(entry.action).replaceAll(".", " ")}</b>
+              <span>{String(entry.actor_name)} · {String(entry.entity_type)} {String(entry.entity_id)}</span>
+            </div>
+            <time>{new Date(Number(entry.created_at)).toLocaleString()}</time>
+          </article>
+        ))}
+      </AdminCollection>
+    </div>
+  );
+}
+
+function AdminCollection({
+  title,
+  empty,
+  children,
+}: {
+  title: string;
+  empty: string;
+  children: React.ReactNode;
+}) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+  return (
+    <section className="admin-collection">
+      <h3>{title}</h3>
+      <div>{hasChildren ? children : <p className="platform-empty">{empty}</p>}</div>
+    </section>
   );
 }
 

@@ -17,7 +17,7 @@ export async function GET() {
   return secureJson(
     {
       status,
-      release: "16-ready",
+      release: "19-ready",
       checkedAt: new Date().toISOString(),
       latencyMs: Date.now() - startedAt,
       dependencies: {

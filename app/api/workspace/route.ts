@@ -28,6 +28,7 @@ async function canAccessOrder(userId: string, role: string, orderId: string) {
   if (role === "customer") return !!await env.DB.prepare("SELECT id FROM orders WHERE id = ? AND customer_id = ?").bind(orderId, userId).first();
   if (role === "vendor") return !!await env.DB.prepare("SELECT o.id FROM orders o JOIN vendors v ON o.vendor_id=v.id WHERE o.id=? AND v.owner_id=?").bind(orderId, userId).first();
   if (role === "rider") return !!await env.DB.prepare("SELECT order_id FROM deliveries WHERE order_id=? AND courier_id=?").bind(orderId, userId).first();
+  if (role === "admin" || role === "superadmin") return !!await env.DB.prepare("SELECT id FROM orders WHERE id=?").bind(orderId).first();
   return false;
 }
 
@@ -61,7 +62,10 @@ export async function GET() {
   const role = String(actor.active_role);
   const actorId = String(actor.id);
   let orders; let deliveries; let vendor: Row | null = null;
-  if (role === "vendor") {
+  if (role === "admin" || role === "superadmin") {
+    orders = await db.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 500").all();
+    deliveries = await db.prepare("SELECT * FROM deliveries ORDER BY rowid DESC LIMIT 500").all();
+  } else if (role === "vendor") {
     vendor = await ownedVendor(String(actor.id));
     orders = vendor ? await db.prepare("SELECT * FROM orders WHERE vendor_id=? ORDER BY created_at DESC LIMIT 100").bind(vendor.id).all() : { results: [] };
     deliveries = vendor ? await db.prepare("SELECT d.* FROM deliveries d JOIN orders o ON d.order_id=o.id WHERE o.vendor_id=? ORDER BY o.created_at DESC").bind(vendor.id).all() : { results: [] };
@@ -77,18 +81,26 @@ export async function GET() {
       ? db.prepare(`SELECT p.*,v.name AS vendor_name,v.slug AS vendor_slug
           FROM products p JOIN vendors v ON p.vendor_id=v.id
           WHERE p.vendor_id=? ORDER BY p.created_at DESC`).bind(vendor.id)
-      : db.prepare(`SELECT p.*,v.name AS vendor_name,v.slug AS vendor_slug
+      : role === "admin" || role === "superadmin"
+        ? db.prepare(`SELECT p.*,v.name AS vendor_name,v.slug AS vendor_slug
+            FROM products p JOIN vendors v ON p.vendor_id=v.id
+            ORDER BY p.created_at DESC LIMIT 500`)
+        : db.prepare(`SELECT p.*,v.name AS vendor_name,v.slug AS vendor_slug
           FROM products p JOIN vendors v ON p.vendor_id=v.id
           WHERE p.active=1 AND v.status='active' ORDER BY p.created_at DESC`);
   const [products, vendors, addresses, messages] = await db.batch([
     productStatement,
-    db.prepare("SELECT id,name,slug,category,address,city,rating FROM vendors WHERE status='active'"),
+    role === "admin" || role === "superadmin"
+      ? db.prepare("SELECT id,name,slug,category,address,city,rating,status FROM vendors ORDER BY created_at DESC")
+      : db.prepare("SELECT id,name,slug,category,address,city,rating FROM vendors WHERE status='active'"),
     db.prepare("SELECT * FROM addresses WHERE user_id=? ORDER BY is_default DESC,created_at DESC").bind(actor.id),
-    db.prepare(`SELECT m.* FROM messages m WHERE m.order_id IN (
-      SELECT id FROM orders WHERE customer_id=?
-      UNION SELECT o.id FROM orders o JOIN vendors v ON o.vendor_id=v.id WHERE v.owner_id=?
-      UNION SELECT order_id FROM deliveries WHERE courier_id=?
-    ) ORDER BY m.created_at ASC LIMIT 500`).bind(actor.id, actor.id, actor.id),
+    role === "admin" || role === "superadmin"
+      ? db.prepare("SELECT m.* FROM messages m ORDER BY m.created_at ASC LIMIT 1000")
+      : db.prepare(`SELECT m.* FROM messages m WHERE m.order_id IN (
+          SELECT id FROM orders WHERE customer_id=?
+          UNION SELECT o.id FROM orders o JOIN vendors v ON o.vendor_id=v.id WHERE v.owner_id=?
+          UNION SELECT order_id FROM deliveries WHERE courier_id=?
+        ) ORDER BY m.created_at ASC LIMIT 500`).bind(actor.id, actor.id, actor.id),
   ]);
   await db.prepare(`INSERT OR IGNORE INTO message_receipts
     (id, message_id, user_id, delivered_at, read_at)
@@ -100,7 +112,7 @@ export async function GET() {
       UNION SELECT order_id FROM deliveries WHERE courier_id=?
     )`).bind(actorId, Date.now(), actorId, actorId, actorId, actorId).run();
   return Response.json({
-    actor: { id: actor.id, email: actor.email, phone: actor.phone, displayName: actor.display_name, activeRole: role, language: actor.language, city: actor.city, onboardingComplete: !!actor.onboarding_complete, authProvider: actor._auth_provider, vendorId: vendor?.id, vendorSlug: vendor?.slug, isAdmin: !!actor.is_admin },
+    actor: { id: actor.id, email: actor.email, phone: actor.phone, displayName: actor.display_name, activeRole: role, language: actor.language, city: actor.city, onboardingComplete: !!actor.onboarding_complete, authProvider: actor._auth_provider, vendorId: vendor?.id, vendorSlug: vendor?.slug, isAdmin: !!actor.is_admin, adminLevel: actor.admin_level ?? (actor.is_admin ? "admin" : "none") },
     products: products.results, vendors: vendors.results, orders: orders.results, deliveries: deliveries.results, messages: messages.results, addresses: addresses.results,
   });
 }
@@ -127,6 +139,9 @@ export async function POST(request: Request) {
   const action = String(body.action ?? ""); const role = String(actor.active_role); const userId = String(actor.id); const now = Date.now(); const db = env.DB;
 
   if (action === "complete_onboarding") {
+    if (role === "admin" || role === "superadmin") {
+      return reject("Administrator roles are managed from the protected admin console.", 403);
+    }
     const selectedRole = String(body.role ?? "customer");
     const submittedPhone = String(body.phone ?? "").replace(/\s/g, "");
     const phone = actor._auth_provider === "whatsapp" && actor.phone

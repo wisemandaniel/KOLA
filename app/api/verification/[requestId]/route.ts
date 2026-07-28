@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
+import { isAdministrator } from "../../../admin";
 import { getAuthenticatedUser } from "../../../auth";
 
 export const dynamic = "force-dynamic";
 
-type Admin = { id: string; is_admin: number };
+type Admin = { id: string; is_admin: number; admin_level: string };
 type Verification = { document_key: string; document_type: string };
 
 export async function GET(
@@ -13,11 +14,11 @@ export async function GET(
   const identity = await getAuthenticatedUser();
   if (!identity) return reject("Authentication required", 401);
   const admin = await env.DB.prepare(
-    "SELECT id,is_admin FROM users WHERE id=?",
+    "SELECT id,is_admin,admin_level FROM users WHERE id=?",
   )
     .bind(identity.userId)
     .first<Admin>();
-  if (!admin || !Number(admin.is_admin)) {
+  if (!admin || !isAdministrator(admin)) {
     return reject("Administrator access required", 403);
   }
 

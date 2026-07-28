@@ -28,6 +28,7 @@ type ChallengeRow = {
 type IdentityRow = {
   user_id: string;
   onboarding_complete: number;
+  account_status: string;
 };
 
 export async function POST(request: Request) {
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
   }
 
   let identity = await env.DB.prepare(
-    `SELECT ai.user_id, u.onboarding_complete
+    `SELECT ai.user_id, u.onboarding_complete, u.account_status
      FROM auth_identities ai
      JOIN users u ON u.id = ai.user_id
      WHERE ai.provider = 'whatsapp' AND ai.provider_user_id = ?
@@ -110,12 +111,19 @@ export async function POST(request: Request) {
   )
     .bind(challenge.phone)
     .first<IdentityRow>();
+  if (identity?.account_status !== undefined && identity.account_status !== "active") {
+    return reject("This Kola account is suspended. Contact support.", 403);
+  }
 
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
       "UPDATE auth_challenges SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL",
     ).bind(now, challenge.id),
   ];
+  const bootstrapSuperadmin =
+    Boolean(config.superadminPhone) &&
+    config.superadminPhone?.replace(/[^\d+]/g, "") ===
+      challenge.phone.replace(/[^\d+]/g, "");
 
   if (!identity) {
     const userId = `usr_${crypto.randomUUID()}`;
@@ -124,16 +132,41 @@ export async function POST(request: Request) {
     statements.push(
       env.DB.prepare(
         `INSERT INTO users
-          (id, email, display_name, phone, active_role, language, onboarding_complete, created_at)
-         VALUES (?, ?, ?, ?, 'customer', 'en', 0, ?)`,
-      ).bind(userId, email, challenge.phone, challenge.phone, now),
+          (id,email,display_name,phone,active_role,language,is_admin,admin_level,
+           account_status,onboarding_complete,created_at)
+         VALUES (?,?,?, ?,?,'en',?,?,'active',?,?)`,
+      ).bind(
+        userId,
+        email,
+        challenge.phone,
+        challenge.phone,
+        bootstrapSuperadmin ? "superadmin" : "customer",
+        Number(bootstrapSuperadmin),
+        bootstrapSuperadmin ? "superadmin" : "none",
+        Number(bootstrapSuperadmin),
+        now,
+      ),
       env.DB.prepare(
         `INSERT INTO auth_identities
           (id, user_id, provider, provider_user_id, created_at)
          VALUES (?, ?, 'whatsapp', ?, ?)`,
       ).bind(crypto.randomUUID(), userId, challenge.phone, now),
     );
-    identity = { user_id: userId, onboarding_complete: 0 };
+    identity = {
+      user_id: userId,
+      onboarding_complete: Number(bootstrapSuperadmin),
+      account_status: "active",
+    };
+  } else if (bootstrapSuperadmin) {
+    statements.push(
+      env.DB.prepare(
+        `UPDATE users
+         SET active_role='superadmin',is_admin=1,admin_level='superadmin',
+             account_status='active',onboarding_complete=1
+         WHERE id=?`,
+      ).bind(identity.user_id),
+    );
+    identity.onboarding_complete = 1;
   }
 
   await env.DB.batch(statements);

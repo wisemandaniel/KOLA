@@ -16,19 +16,19 @@ test("ships Kola product metadata without starter or ChatGPT sign-in remnants", 
   assert.match(layout, /Kola/);
   assert.match(landing, /Cameroon/i);
   assert.match(login, /WhatsApp/i);
+  assert.doesNotMatch(login, /Google|Facebook/i);
   assert.doesNotMatch(`${layout}\n${landing}\n${login}`, /codex-preview/i);
   assert.doesNotMatch(`${layout}\n${landing}\n${login}`, /sign in with ChatGPT/i);
   assert.match(favicon, /favicon\.svg/);
   assert.match(favicon, /status: 308/);
 });
 
-test("protects WhatsApp verification and persistent sessions", async () => {
-  const [requestRoute, verifyRoute, logoutRoute, auth, oauth] = await Promise.all([
+test("protects WhatsApp-only verification and persistent sessions", async () => {
+  const [requestRoute, verifyRoute, logoutRoute, auth] = await Promise.all([
     source("app/api/auth/whatsapp/request/route.ts"),
     source("app/api/auth/whatsapp/verify/route.ts"),
     source("app/api/auth/logout/route.ts"),
     source("app/auth.ts"),
-    source("app/oauth.ts"),
   ]);
 
   assert.match(requestRoute, /MAX_REQUESTS_PER_WINDOW/);
@@ -40,20 +40,21 @@ test("protects WhatsApp verification and persistent sessions", async () => {
   assert.match(auth, /HttpOnly/);
   assert.match(auth, /SameSite=Lax/);
   assert.match(auth, /safeReturnPath/);
+  assert.match(auth, /KOLA_SUPERADMIN_PHONE/);
   assert.match(logoutRoute, /new Response\(null/);
-  assert.match(oauth, /function redirectResponse/);
-  assert.doesNotMatch(`${logoutRoute}\n${oauth}`, /Response\.redirect/);
+  assert.doesNotMatch(`${requestRoute}\n${verifyRoute}\n${auth}`, /GOOGLE_CLIENT|FACEBOOK_APP/);
 });
 
-test("hardens checkout, uploads, tracking and external integrations", async () => {
-  const [workspace, fileSecurity, tracking, oauth, integrations, migration] =
+test("hardens checkout, uploads, tracking, Fapshi payments and administration", async () => {
+  const [workspace, fileSecurity, tracking, integrations, webhook, platform, migration] =
     await Promise.all([
       source("app/api/workspace/route.ts"),
       source("app/file-security.ts"),
       source("app/api/track/[orderId]/route.ts"),
-      source("app/oauth.ts"),
       source("app/integrations.ts"),
-      source("drizzle/0008_gray_grim_reaper.sql"),
+      source("app/api/payments/fapshi/webhook/route.ts"),
+      source("app/api/platform/route.ts"),
+      source("drizzle/0009_married_ultragirl.sql"),
     ]);
 
   assert.match(workspace, /idempotency_records/);
@@ -62,12 +63,20 @@ test("hardens checkout, uploads, tracking and external integrations", async () =
   assert.match(fileSecurity, /%PDF-/);
   assert.match(tracking, /tracking_token = \?/);
   assert.doesNotMatch(tracking, /orderId === "KL-2084"/);
-  assert.match(oauth, /code_challenge_method/);
-  assert.match(oauth, /oauth_states/);
-  assert.match(integrations, /requesttopay/);
-  assert.match(integrations, /ORANGE_MONEY_MERCHANT_KEY/);
-  assert.match(migration, /CREATE TABLE `rate_limits`/);
-  assert.match(migration, /CREATE TABLE `security_events`/);
+  assert.match(integrations, /\/initiate-pay/);
+  assert.match(integrations, /\/payment-status\//);
+  assert.match(integrations, /apiuser/);
+  assert.match(integrations, /live\.fapshi\.com/);
+  assert.match(webhook, /fetchFapshiPaymentStatus/);
+  assert.match(webhook, /Payment reconciliation mismatch/);
+  assert.match(platform, /admin_user_role/);
+  assert.match(platform, /admin_user_status/);
+  assert.match(platform, /admin_vendor_status/);
+  assert.match(platform, /admin_payment_status/);
+  assert.match(migration, /admin_level/);
+  assert.match(migration, /account_status/);
+  assert.match(migration, /superadmin/);
+  assert.match(migration, /DELETE FROM `oauth_states`/);
 });
 
 test("implements private, optimistic rich order messaging", async () => {

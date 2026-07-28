@@ -6,7 +6,6 @@ import {
   safeReturnPath,
 } from "../auth";
 import LoginClient from "./LoginClient";
-import { oauthProviderReady } from "../oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +36,6 @@ export default async function LoginPage({
     <LoginClient
       returnTo={returnTo}
       whatsappReady={whatsappReady}
-      googleReady={oauthProviderReady("google")}
-      facebookReady={oauthProviderReady("facebook")}
       initialError={String(params.auth_error ?? "").slice(0, 180)}
     />
   );

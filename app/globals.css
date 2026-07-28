@@ -428,10 +428,26 @@ html[data-theme="dark"] .whatsapp-list>button>span{background:#0b4f43;color:#7ce
 .admin-reply input{height:35px;min-width:0;flex:1;border:1px solid var(--line);border-radius:999px;background:var(--surface);padding:0 12px;font-size:9px;outline:0}
 .admin-reply button{width:35px;height:35px;flex:none;border:0;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center}.admin-reply button svg{width:14px}
 .verification-admin-list{margin-top:18px}
+.admin-console.standalone{padding:28px;border:1px solid var(--line);border-radius:24px;background:var(--surface);box-shadow:0 10px 34px rgba(20,28,38,.04)}
+.admin-level-badge{padding:7px 11px;border-radius:999px;background:var(--blue-soft);color:var(--blue);font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.9px}
+.admin-collection{margin-top:20px;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--surface)}
+.admin-collection>h3{margin:0;padding:16px 18px;border-bottom:1px solid var(--line);font-size:12px}
+.admin-collection>div{display:grid}
+.admin-collection>div>article{min-height:68px;display:flex;align-items:center;gap:11px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.admin-collection>div>article:last-child{border-bottom:0}
+.admin-collection article>div{display:flex;min-width:160px;flex:1;flex-direction:column;gap:4px}
+.admin-collection article b{font-size:10px}.admin-collection article span,.admin-collection article time{color:var(--muted);font-size:8px}
+.admin-collection article strong{font-size:9px;white-space:nowrap}
+.admin-collection select{height:35px;max-width:160px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0 9px;font-size:9px;text-transform:capitalize}
+.admin-collection em.admin-state{font-style:normal;font-size:8px;white-space:nowrap;border-radius:999px;padding:6px 9px;background:var(--canvas);color:var(--muted);text-transform:capitalize}
+.admin-collection em.admin-state.active,.admin-collection em.admin-state.paid,.admin-collection em.admin-state.delivered,.admin-collection em.admin-state.successful{background:var(--green-soft);color:var(--green)}
+.admin-collection em.admin-state.suspended,.admin-collection em.admin-state.failed,.admin-collection em.admin-state.cancelled{background:var(--red-soft);color:var(--red)}
+.admin-collection em.admin-state.pending,.admin-collection em.admin-state.pending_provider,.admin-collection em.admin-state.initiating{background:var(--amber-soft);color:var(--amber)}
+.admin-role-label{min-width:68px;text-align:center;text-transform:capitalize}
 
 /* Payments */
 .payment-center{display:grid;gap:18px}
-.payment-method-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.payment-method-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .payment-provider{min-height:84px;border:1px solid var(--line);border-radius:18px;background:var(--surface);padding:15px;display:grid;grid-template-columns:40px 1fr auto;align-items:center;gap:11px;text-align:left;color:var(--ink)}
 .payment-provider:hover,.payment-provider.selected{border-color:#9dcdf0;box-shadow:0 0 0 3px rgba(0,130,230,.07)}
 .payment-provider>span{width:38px;height:38px;border-radius:12px;background:var(--canvas);display:grid;place-items:center;font-size:9px;font-weight:800}
@@ -492,7 +508,8 @@ html[data-theme="dark"] .storefront-nav{background:rgba(15,17,21,.88)}
 html[data-theme="dark"] .storefront-hero{background:radial-gradient(circle at 78% 12%,rgba(0,130,230,.19),transparent 33%),linear-gradient(140deg,#121922,#11151b)}
 html[data-theme="dark"] .storefront-rating{background:rgba(24,30,38,.76);border-color:#2d3540}
 html[data-theme="dark"] .storefront-avatar{background:#f4f6f8;color:#11151a}
-html[data-theme="dark"] :is(.platform-form input,.platform-form select,.platform-form textarea,.payment-request-card input,.payment-request-card select,.verification-upload select,.admin-ticket-list select){background:var(--surface);border-color:var(--line);color:var(--ink)}
+html[data-theme="dark"] :is(.platform-form input,.platform-form select,.platform-form textarea,.payment-request-card input,.payment-request-card select,.verification-upload select,.admin-ticket-list select,.admin-collection select){background:var(--surface);border-color:var(--line);color:var(--ink)}
+html[data-theme="dark"] .admin-console.standalone{background:var(--surface);box-shadow:none}
 html[data-theme="dark"] .rating-picker button.active{background:#332a13;border-color:#705a22;color:#f0bd3f}
 html[data-theme="dark"] .cart-split-note{background:#142a3a;color:#78c5ff}
 html[data-theme="dark"] .product-image-upload:has(img)>span{background:rgba(0,0,0,.72)}
@@ -529,6 +546,9 @@ html[data-theme="dark"] .product-image-upload:has(img)>span{background:rgba(0,0,
   .payment-method-grid{grid-template-columns:1fr}
   .admin-ticket-list>article.admin-ticket{grid-template-columns:1fr auto}
   .admin-reply{grid-column:1/-1}
+  .admin-console.standalone{padding:20px 16px;border-radius:19px}
+  .admin-collection>div>article{align-items:flex-start;flex-wrap:wrap}
+  .admin-collection article>div{min-width:100%;flex-basis:100%}
   .storefront-hero{grid-template-columns:68px 1fr;padding-top:45px;padding-bottom:45px}
   .storefront-avatar{width:66px;height:66px;border-radius:20px;font-size:19px}
   .storefront-rating{grid-column:1/-1;min-width:0}

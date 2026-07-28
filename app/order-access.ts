@@ -61,5 +61,12 @@ export async function canAccessOrder(
         .first(),
     );
   }
+  if (role === "admin" || role === "superadmin") {
+    return Boolean(
+      await env.DB.prepare("SELECT id FROM orders WHERE id = ?")
+        .bind(orderId)
+        .first(),
+    );
+  }
   return false;
 }

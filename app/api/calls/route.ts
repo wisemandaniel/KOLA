@@ -244,6 +244,14 @@ async function findIncomingCall(actor: RequestActor): Promise<CallRow | null> {
     query = `${common}
       SELECT order_id FROM deliveries WHERE courier_id = ?)
       ORDER BY vc.created_at DESC LIMIT 1`;
+  } else if (actor.role === "admin" || actor.role === "superadmin") {
+    return env.DB.prepare(
+      `SELECT vc.* FROM voice_calls vc
+       WHERE vc.status='ringing' AND vc.initiator_id != ? AND vc.created_at > ?
+       ORDER BY vc.created_at DESC LIMIT 1`,
+    )
+      .bind(actor.id, now - RING_TIMEOUT_MS)
+      .first<CallRow>();
   } else {
     return null;
   }

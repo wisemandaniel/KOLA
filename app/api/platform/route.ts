@@ -1,9 +1,13 @@
 import { env } from "cloudflare:workers";
+import {
+  adminLevel,
+  isAdministrator,
+  isSuperadmin,
+} from "../../admin";
 import { getAuthenticatedUser } from "../../auth";
 import {
-  fetchMtnPaymentStatus,
+  fetchFapshiPaymentStatus,
   integrationReadiness,
-  PaymentProvider,
   startPayment,
 } from "../../integrations";
 import {
@@ -15,7 +19,13 @@ import {
 export const dynamic = "force-dynamic";
 
 type Row = Record<string, unknown>;
-type Actor = Row & { id: string; active_role: string; is_admin: number };
+type Actor = Row & {
+  id: string;
+  active_role: string;
+  is_admin: number;
+  admin_level: string;
+  account_status: string;
+};
 
 async function requireActor(): Promise<Actor | null> {
   const identity = await getAuthenticatedUser();
@@ -100,7 +110,17 @@ export async function GET() {
     : { results: [] };
 
   let analytics: Row = {};
-  if (actor.active_role === "vendor" && vendor) {
+  if (isAdministrator(actor)) {
+    const summary = await env.DB.prepare(
+      `SELECT
+        COUNT(*) AS orders,
+        COALESCE(SUM(CASE WHEN payment_status='paid' THEN total ELSE 0 END),0) AS revenue,
+        SUM(CASE WHEN status NOT IN ('delivered','cancelled','rejected') THEN 1 ELSE 0 END) AS active_orders,
+        SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered
+       FROM orders`,
+    ).first<Row>();
+    analytics = summary ?? {};
+  } else if (actor.active_role === "vendor" && vendor) {
     const summary = await env.DB.prepare(
       `SELECT
         COUNT(*) AS orders,
@@ -146,14 +166,69 @@ export async function GET() {
   }
 
   let admin: Row | null = null;
-  if (Number(actor.is_admin)) {
-    const [users, vendors, orders, openTickets, pendingRiders, recentTickets, recentVerifications] =
+  if (isAdministrator(actor)) {
+    const [
+      users,
+      vendors,
+      orders,
+      openTickets,
+      pendingRiders,
+      revenue,
+      recentUsers,
+      recentVendors,
+      recentOrders,
+      recentPayments,
+      recentDeliveries,
+      recentTickets,
+      recentVerifications,
+      recentAudit,
+    ] =
       await env.DB.batch([
         env.DB.prepare("SELECT COUNT(*) AS total FROM users"),
         env.DB.prepare("SELECT COUNT(*) AS total FROM vendors WHERE status='active'"),
         env.DB.prepare("SELECT COUNT(*) AS total FROM orders"),
         env.DB.prepare("SELECT COUNT(*) AS total FROM support_tickets WHERE status!='closed'"),
         env.DB.prepare("SELECT COUNT(*) AS total FROM courier_verification_requests WHERE status='submitted'"),
+        env.DB.prepare(
+          "SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE status='paid'",
+        ),
+        env.DB.prepare(
+          `SELECT id,display_name,email,phone,active_role,admin_level,account_status,
+                  city,created_at
+           FROM users ORDER BY created_at DESC LIMIT 100`,
+        ),
+        env.DB.prepare(
+          `SELECT v.id,v.name,v.slug,v.category,v.city,v.status,v.rating,v.owner_id,
+                  v.created_at,u.display_name AS owner_name
+           FROM vendors v JOIN users u ON u.id=v.owner_id
+           ORDER BY v.created_at DESC LIMIT 100`,
+        ),
+        env.DB.prepare(
+          `SELECT o.id,o.customer_id,o.vendor_id,o.status,o.total,o.payment_status,
+                  o.delivery_address,o.created_at,o.updated_at,
+                  customer.display_name AS customer_name,v.name AS vendor_name,
+                  d.status AS delivery_status,d.tracking_token
+           FROM orders o
+           JOIN users customer ON customer.id=o.customer_id
+           JOIN vendors v ON v.id=o.vendor_id
+           LEFT JOIN deliveries d ON d.order_id=o.id
+           ORDER BY o.created_at DESC LIMIT 150`,
+        ),
+        env.DB.prepare(
+          `SELECT pa.id,pa.order_id,pa.user_id,pa.provider,pa.amount,pa.status,
+                  pa.provider_reference,pa.failure_reason,pa.created_at,pa.updated_at,
+                  u.display_name AS user_name
+           FROM payment_attempts pa JOIN users u ON u.id=pa.user_id
+           ORDER BY pa.created_at DESC LIMIT 100`,
+        ),
+        env.DB.prepare(
+          `SELECT d.id,d.order_id,d.courier_id,d.status,d.pickup_address,
+                  d.dropoff_address,d.distance_km,d.courier_fee,d.estimated_arrival,
+                  d.location_updated_at,u.display_name AS courier_name
+           FROM deliveries d
+           LEFT JOIN users u ON u.id=d.courier_id
+           ORDER BY d.rowid DESC LIMIT 100`,
+        ),
         env.DB.prepare(
           `SELECT st.*, u.display_name AS user_name
            FROM support_tickets st JOIN users u ON u.id=st.user_id
@@ -167,15 +242,29 @@ export async function GET() {
            ORDER BY CASE cvr.status WHEN 'submitted' THEN 0 ELSE 1 END,
                     cvr.created_at DESC LIMIT 30`,
         ),
+        env.DB.prepare(
+          `SELECT al.id,al.action,al.entity_type,al.entity_id,al.metadata,
+                  al.created_at,u.display_name AS actor_name
+           FROM audit_logs al JOIN users u ON u.id=al.actor_id
+           ORDER BY al.created_at DESC LIMIT 100`,
+        ),
       ]);
     admin = {
+      level: adminLevel(actor),
       users: Number((users.results[0] as Row | undefined)?.total ?? 0),
       vendors: Number((vendors.results[0] as Row | undefined)?.total ?? 0),
       orders: Number((orders.results[0] as Row | undefined)?.total ?? 0),
       openTickets: Number((openTickets.results[0] as Row | undefined)?.total ?? 0),
       pendingRiders: Number((pendingRiders.results[0] as Row | undefined)?.total ?? 0),
+      revenue: Number((revenue.results[0] as Row | undefined)?.total ?? 0),
+      userRows: recentUsers.results,
+      vendorRows: recentVendors.results,
+      orderRows: recentOrders.results,
+      paymentRows: recentPayments.results,
+      deliveryRows: recentDeliveries.results,
       tickets: recentTickets.results,
       verifications: recentVerifications.results,
+      auditRows: recentAudit.results,
     };
   }
 
@@ -186,7 +275,8 @@ export async function GET() {
       city: actor.city,
       language: actor.language,
       notificationPreferences: actor.notification_preferences,
-      isAdmin: Boolean(actor.is_admin),
+      isAdmin: isAdministrator(actor),
+      adminLevel: adminLevel(actor),
     },
     addresses: common[0].results,
     notifications: common[1].results,
@@ -356,11 +446,11 @@ export async function POST(request: Request) {
       `SELECT id,user_id,status FROM support_tickets
        WHERE id=? AND (user_id=? OR ?=1)`,
     )
-      .bind(id, actor.id, Number(actor.is_admin))
+      .bind(id, actor.id, Number(isAdministrator(actor)))
       .first<Row>();
     if (!ticket) return reject("Support ticket not found.", 404);
     if (ticket.status === "closed") return reject("This support ticket is closed.", 409);
-    const nextStatus = Number(actor.is_admin) ? "in_progress" : String(ticket.status);
+    const nextStatus = isAdministrator(actor) ? "in_progress" : String(ticket.status);
     const statements = [
       env.DB.prepare(
         `INSERT INTO support_messages (id,ticket_id,sender_id,body,created_at)
@@ -370,7 +460,7 @@ export async function POST(request: Request) {
         "UPDATE support_tickets SET status=?,updated_at=? WHERE id=?",
       ).bind(nextStatus, now, id),
     ];
-    if (Number(actor.is_admin) && String(ticket.user_id) !== actor.id) {
+    if (isAdministrator(actor) && String(ticket.user_id) !== actor.id) {
       statements.push(
         env.DB.prepare(
           `INSERT INTO notifications (id,user_id,type,title,body,href,created_at)
@@ -465,10 +555,7 @@ export async function POST(request: Request) {
   if (action === "payment_attempt") {
     if (actor.active_role !== "customer") return reject("Customer account required.", 403);
     const orderId = String(body.orderId ?? "");
-    const provider = String(body.provider ?? "");
-    if (!["mtn_momo", "orange_money"].includes(provider)) {
-      return reject("Choose MTN MoMo or Orange Money.");
-    }
+    const provider = "fapshi";
     const order = await env.DB.prepare(
       "SELECT id,total,payment_status FROM orders WHERE id=? AND customer_id=?",
     )
@@ -476,13 +563,8 @@ export async function POST(request: Request) {
       .first<Row>();
     if (!order) return reject("Order not found.", 404);
     if (order.payment_status === "paid") return reject("This order is already paid.", 409);
-    const phone = String(body.phone ?? actor.phone ?? "");
-    if (!/^(?:\+?237)?6\d{8}$/.test(phone.replace(/[\s()-]/g, ""))) {
-      return reject("Enter a valid Cameroon mobile number.");
-    }
     const readiness = integrationReadiness();
-    const enabled =
-      provider === "mtn_momo" ? readiness.mtnMomo : readiness.orangeMoney;
+    const enabled = readiness.fapshi;
     const id = crypto.randomUUID();
     await env.DB.prepare(
       `INSERT INTO payment_attempts
@@ -494,10 +576,10 @@ export async function POST(request: Request) {
         orderId,
         actor.id,
         provider,
-        phone,
+        actor.phone ?? null,
         order.total,
         enabled ? "initiating" : "configuration_required",
-        enabled ? null : "Provider credentials are not configured.",
+        enabled ? null : "Fapshi credentials are not configured.",
         now,
         now,
       )
@@ -511,10 +593,10 @@ export async function POST(request: Request) {
     }
     try {
       const payment = await startPayment({
-        provider: provider as PaymentProvider,
         orderId,
         amount: Number(order.total),
-        phone,
+        userId: String(actor.id),
+        email: actor.email ? String(actor.email) : undefined,
         origin: new URL(request.url).origin,
       });
       await env.DB.prepare(
@@ -552,16 +634,28 @@ export async function POST(request: Request) {
        JOIN orders o ON o.id=pa.order_id
        WHERE pa.id=? AND (pa.user_id=? OR ?=1) LIMIT 1`,
     )
-      .bind(attemptId, actor.id, Number(actor.is_admin))
+      .bind(attemptId, actor.id, Number(isAdministrator(actor)))
       .first<Row>();
     if (!attempt) return reject("Payment attempt not found.", 404);
-    if (attempt.provider !== "mtn_momo" || !attempt.provider_reference) {
+    if (attempt.provider !== "fapshi" || !attempt.provider_reference) {
       return secureJson({ status: attempt.status });
     }
     try {
-      const providerStatus = await fetchMtnPaymentStatus(
+      const providerStatus = await fetchFapshiPaymentStatus(
         String(attempt.provider_reference),
       );
+      if (
+        providerStatus.externalId &&
+        providerStatus.externalId !== String(attempt.order_id)
+      ) {
+        return reject("Fapshi returned a mismatched order reference.", 409);
+      }
+      if (
+        providerStatus.amount != null &&
+        providerStatus.amount !== Number(attempt.amount)
+      ) {
+        return reject("Fapshi returned a mismatched payment amount.", 409);
+      }
       await env.DB.prepare(
         "UPDATE payment_attempts SET status=?,failure_reason=?,updated_at=? WHERE id=?",
       )
@@ -587,7 +681,7 @@ export async function POST(request: Request) {
           ).bind(
             crypto.randomUUID(),
             attempt.order_id,
-            "mtn_momo",
+            "fapshi",
             attempt.amount,
             "paid",
             attempt.provider_reference,
@@ -606,8 +700,244 @@ export async function POST(request: Request) {
     }
   }
 
+  if (action === "admin_user_role") {
+    if (!isSuperadmin(actor)) return reject("Superadmin access required.", 403);
+    const id = String(body.id ?? "");
+    const level = String(body.level ?? "");
+    if (!["none", "admin", "superadmin"].includes(level)) {
+      return reject("Choose a valid administrator role.");
+    }
+    const target = await env.DB.prepare(
+      "SELECT id,active_role,admin_level,is_admin FROM users WHERE id=? LIMIT 1",
+    )
+      .bind(id)
+      .first<Row>();
+    if (!target) return reject("User not found.", 404);
+    if (id === actor.id && level !== "superadmin") {
+      return reject("You cannot remove your own superadmin access.", 409);
+    }
+    const targetLevel = adminLevel(target);
+    if (targetLevel === "superadmin" && level !== "superadmin") {
+      const count = await env.DB.prepare(
+        "SELECT COUNT(*) AS total FROM users WHERE admin_level='superadmin' AND account_status='active'",
+      ).first<Row>();
+      if (Number(count?.total ?? 0) <= 1) {
+        return reject("Kola must retain at least one active superadmin.", 409);
+      }
+    }
+    const currentRole = String(target.active_role ?? "customer");
+    const activeRole =
+      level === "none"
+        ? ["admin", "superadmin"].includes(currentRole)
+          ? "customer"
+          : currentRole
+        : level;
+    await env.DB.prepare(
+      "UPDATE users SET admin_level=?,is_admin=?,active_role=? WHERE id=?",
+    )
+      .bind(level, Number(level !== "none"), activeRole, id)
+      .run();
+    await writeAudit(actor.id, "user.admin_role_changed", "user", id, {
+      previousLevel: targetLevel,
+      level,
+    });
+    return Response.json({ ok: true });
+  }
+
+  if (action === "admin_user_status") {
+    if (!isAdministrator(actor)) return reject("Administrator access required.", 403);
+    const id = String(body.id ?? "");
+    const status = String(body.status ?? "");
+    if (!["active", "suspended"].includes(status)) {
+      return reject("Choose a valid account status.");
+    }
+    if (id === actor.id && status === "suspended") {
+      return reject("You cannot suspend your own account.", 409);
+    }
+    const target = await env.DB.prepare(
+      "SELECT id,admin_level,is_admin,account_status FROM users WHERE id=? LIMIT 1",
+    )
+      .bind(id)
+      .first<Row>();
+    if (!target) return reject("User not found.", 404);
+    if (isSuperadmin(target) && !isSuperadmin(actor)) {
+      return reject("Only a superadmin can manage a superadmin account.", 403);
+    }
+    if (isSuperadmin(target) && status === "suspended") {
+      const count = await env.DB.prepare(
+        "SELECT COUNT(*) AS total FROM users WHERE admin_level='superadmin' AND account_status='active'",
+      ).first<Row>();
+      if (Number(count?.total ?? 0) <= 1) {
+        return reject("Kola must retain at least one active superadmin.", 409);
+      }
+    }
+    const statements = [
+      env.DB.prepare("UPDATE users SET account_status=? WHERE id=?").bind(status, id),
+    ];
+    if (status === "suspended") {
+      statements.push(
+        env.DB.prepare("DELETE FROM auth_sessions WHERE user_id=?").bind(id),
+      );
+    }
+    await env.DB.batch(statements);
+    await writeAudit(actor.id, "user.account_status_changed", "user", id, {
+      status,
+    });
+    return Response.json({ ok: true });
+  }
+
+  if (action === "admin_vendor_status") {
+    if (!isAdministrator(actor)) return reject("Administrator access required.", 403);
+    const id = String(body.id ?? "");
+    const status = String(body.status ?? "");
+    if (!["active", "suspended"].includes(status)) {
+      return reject("Choose a valid vendor status.");
+    }
+    const vendor = await env.DB.prepare("SELECT id FROM vendors WHERE id=?")
+      .bind(id)
+      .first();
+    if (!vendor) return reject("Vendor not found.", 404);
+    await env.DB.prepare("UPDATE vendors SET status=? WHERE id=?")
+      .bind(status, id)
+      .run();
+    await writeAudit(actor.id, "vendor.status_changed", "vendor", id, { status });
+    return Response.json({ ok: true });
+  }
+
+  if (action === "admin_order_status") {
+    if (!isAdministrator(actor)) return reject("Administrator access required.", 403);
+    const id = String(body.id ?? "");
+    const status = String(body.status ?? "");
+    const allowed = [
+      "pending",
+      "accepted",
+      "preparing",
+      "ready",
+      "picked_up",
+      "delivered",
+      "cancelled",
+      "rejected",
+    ];
+    if (!allowed.includes(status)) return reject("Choose a valid order status.");
+    const order = await env.DB.prepare("SELECT id FROM orders WHERE id=?")
+      .bind(id)
+      .first();
+    if (!order) return reject("Order not found.", 404);
+    const statements = [
+      env.DB.prepare("UPDATE orders SET status=?,updated_at=? WHERE id=?").bind(
+        status,
+        now,
+        id,
+      ),
+    ];
+    if (status === "picked_up") {
+      statements.push(
+        env.DB.prepare(
+          "UPDATE deliveries SET status='picked_up',picked_up_at=COALESCE(picked_up_at,?) WHERE order_id=?",
+        ).bind(now, id),
+      );
+    } else if (status === "delivered") {
+      statements.push(
+        env.DB.prepare(
+          "UPDATE deliveries SET status='delivered',delivered_at=COALESCE(delivered_at,?) WHERE order_id=?",
+        ).bind(now, id),
+      );
+    } else if (["cancelled", "rejected"].includes(status)) {
+      statements.push(
+        env.DB.prepare(
+          "UPDATE deliveries SET status='cancelled' WHERE order_id=? AND status!='delivered'",
+        ).bind(id),
+      );
+    }
+    await env.DB.batch(statements);
+    await writeAudit(actor.id, "order.status_changed", "order", id, { status });
+    return Response.json({ ok: true });
+  }
+
+  if (action === "admin_delivery_status") {
+    if (!isAdministrator(actor)) return reject("Administrator access required.", 403);
+    const id = String(body.id ?? "");
+    const status = String(body.status ?? "");
+    if (!["unassigned", "accepted", "picked_up", "delivered", "cancelled"].includes(status)) {
+      return reject("Choose a valid delivery status.");
+    }
+    const delivery = await env.DB.prepare(
+      "SELECT id,order_id FROM deliveries WHERE id=?",
+    )
+      .bind(id)
+      .first<Row>();
+    if (!delivery) return reject("Delivery not found.", 404);
+    await env.DB.prepare(
+      `UPDATE deliveries SET status=?,
+         picked_up_at=CASE WHEN ?='picked_up' THEN COALESCE(picked_up_at,?) ELSE picked_up_at END,
+         delivered_at=CASE WHEN ?='delivered' THEN COALESCE(delivered_at,?) ELSE delivered_at END
+       WHERE id=?`,
+    )
+      .bind(status, status, now, status, now, id)
+      .run();
+    if (status === "delivered") {
+      await env.DB.prepare("UPDATE orders SET status='delivered',updated_at=? WHERE id=?")
+        .bind(now, delivery.order_id)
+        .run();
+    }
+    await writeAudit(actor.id, "delivery.status_changed", "delivery", id, { status });
+    return Response.json({ ok: true });
+  }
+
+  if (action === "admin_payment_status") {
+    if (!isSuperadmin(actor)) return reject("Superadmin access required.", 403);
+    const orderId = String(body.orderId ?? "");
+    const status = String(body.status ?? "");
+    if (!["pending", "paid", "refunded"].includes(status)) {
+      return reject("Choose a valid payment status.");
+    }
+    const order = await env.DB.prepare("SELECT id,total FROM orders WHERE id=?")
+      .bind(orderId)
+      .first<Row>();
+    if (!order) return reject("Order not found.", 404);
+    const statements = [
+      env.DB.prepare("UPDATE orders SET payment_status=?,updated_at=? WHERE id=?").bind(
+        status,
+        now,
+        orderId,
+      ),
+    ];
+    if (status === "paid") {
+      const reference = `admin:${orderId}`;
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO payments
+            (id,order_id,provider,amount,status,provider_reference,created_at)
+           SELECT ?,?,'admin_override',?,'paid',?,?
+           WHERE NOT EXISTS (
+             SELECT 1 FROM payments WHERE order_id=? AND provider_reference=?
+           )`,
+        ).bind(
+          crypto.randomUUID(),
+          orderId,
+          order.total,
+          reference,
+          now,
+          orderId,
+          reference,
+        ),
+      );
+    } else if (status === "refunded") {
+      statements.push(
+        env.DB.prepare(
+          "UPDATE payments SET status='refunded' WHERE order_id=? AND status='paid'",
+        ).bind(orderId),
+      );
+    }
+    await env.DB.batch(statements);
+    await writeAudit(actor.id, "payment.status_overridden", "order", orderId, {
+      status,
+    });
+    return Response.json({ ok: true });
+  }
+
   if (action === "admin_ticket_status") {
-    if (!Number(actor.is_admin)) return reject("Administrator access required.", 403);
+    if (!isAdministrator(actor)) return reject("Administrator access required.", 403);
     const id = String(body.id ?? "");
     const status = String(body.status ?? "");
     if (!["open", "in_progress", "resolved", "closed"].includes(status)) {
@@ -623,7 +953,7 @@ export async function POST(request: Request) {
   }
 
   if (action === "admin_verification") {
-    if (!Number(actor.is_admin)) return reject("Administrator access required.", 403);
+    if (!isAdministrator(actor)) return reject("Administrator access required.", 403);
     const id = String(body.id ?? "");
     const status = String(body.status ?? "");
     if (!["approved", "rejected"].includes(status)) return reject("Invalid decision.");

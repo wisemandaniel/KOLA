@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { isAdministrator } from "../../../admin";
 import { getRequestActor } from "../../../order-access";
 import { secureJson } from "../../../security";
 
@@ -8,9 +9,9 @@ export async function GET() {
   const actor = await getRequestActor();
   if (!actor) return secureJson({ error: "Authentication required." }, 401);
   const administrator = await env.DB.prepare(
-    "SELECT is_admin FROM users WHERE id=? LIMIT 1",
-  ).bind(actor.id).first<{ is_admin: number }>();
-  if (!administrator?.is_admin) {
+    "SELECT is_admin,admin_level FROM users WHERE id=? LIMIT 1",
+  ).bind(actor.id).first<{ is_admin: number; admin_level: string }>();
+  if (!administrator || !isAdministrator(administrator)) {
     return secureJson({ error: "Administrator access required." }, 403);
   }
 
@@ -28,7 +29,8 @@ export async function GET() {
   ] = await env.DB.batch([
     env.DB.prepare(
       `SELECT id,email,display_name,phone,active_role,language,city,is_admin,
-              onboarding_complete,created_at FROM users ORDER BY created_at`,
+              admin_level,account_status,onboarding_complete,created_at
+       FROM users ORDER BY created_at`,
     ),
     env.DB.prepare("SELECT * FROM vendors ORDER BY created_at"),
     env.DB.prepare(

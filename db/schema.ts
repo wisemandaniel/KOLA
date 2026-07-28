@@ -9,6 +9,8 @@ export const users = sqliteTable("users", {
   language: text("language").notNull().default("en"),
   city: text("city"),
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+  adminLevel: text("admin_level").notNull().default("none"),
+  accountStatus: text("account_status").notNull().default("active"),
   notificationPreferences: text("notification_preferences").notNull().default("all"),
   onboardingComplete: integer("onboarding_complete", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull(),
