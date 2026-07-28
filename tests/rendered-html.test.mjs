@@ -20,10 +20,12 @@ test("ships Kola product metadata without starter or ChatGPT sign-in remnants", 
 });
 
 test("protects WhatsApp verification and persistent sessions", async () => {
-  const [requestRoute, verifyRoute, auth] = await Promise.all([
+  const [requestRoute, verifyRoute, logoutRoute, auth, oauth] = await Promise.all([
     source("app/api/auth/whatsapp/request/route.ts"),
     source("app/api/auth/whatsapp/verify/route.ts"),
+    source("app/api/auth/logout/route.ts"),
     source("app/auth.ts"),
+    source("app/oauth.ts"),
   ]);
 
   assert.match(requestRoute, /MAX_REQUESTS_PER_WINDOW/);
@@ -35,6 +37,9 @@ test("protects WhatsApp verification and persistent sessions", async () => {
   assert.match(auth, /HttpOnly/);
   assert.match(auth, /SameSite=Lax/);
   assert.match(auth, /safeReturnPath/);
+  assert.match(logoutRoute, /new Response\(null/);
+  assert.match(oauth, /function redirectResponse/);
+  assert.doesNotMatch(`${logoutRoute}\n${oauth}`, /Response\.redirect/);
 });
 
 test("hardens checkout, uploads, tracking and external integrations", async () => {

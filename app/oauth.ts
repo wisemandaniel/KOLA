@@ -88,13 +88,12 @@ export async function beginOAuth(
     }).toString();
   }
 
-  const response = Response.redirect(authorizationUrl, 302);
-  response.headers.append(
-    "set-cookie",
-    `kola_oauth_state=${state}; Path=/api/auth/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
-  );
-  response.headers.set("cache-control", "no-store");
-  return response;
+  return redirectResponse(authorizationUrl, 302, [
+    [
+      "set-cookie",
+      `kola_oauth_state=${state}; Path=/api/auth/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+    ],
+  ]);
 }
 
 export async function finishOAuth(
@@ -152,14 +151,13 @@ export async function finishOAuth(
     const redirectTo = identity.onboardingComplete
       ? safeReturnPath(row.return_to, "/dashboard")
       : "/onboarding";
-    const response = Response.redirect(new URL(redirectTo, url.origin), 302);
-    response.headers.append("set-cookie", session.cookie);
-    response.headers.append(
-      "set-cookie",
-      "kola_oauth_state=; Path=/api/auth/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
-    );
-    response.headers.set("cache-control", "no-store");
-    return response;
+    return redirectResponse(new URL(redirectTo, url.origin), 302, [
+      ["set-cookie", session.cookie],
+      [
+        "set-cookie",
+        "kola_oauth_state=; Path=/api/auth/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+      ],
+    ]);
   } catch (error) {
     console.error("OAuth callback failed", provider, error);
     await recordSecurityEvent(request, {
@@ -324,10 +322,22 @@ async function resolveOAuthIdentity(provider: OAuthProvider, profile: OAuthProfi
 function loginError(request: Request, message: string, status = 400) {
   const url = new URL("/login", request.url);
   url.searchParams.set("auth_error", message.slice(0, 180));
-  const response = Response.redirect(`${url.pathname}${url.search}`, 302);
-  response.headers.set("x-auth-error-status", String(status));
-  response.headers.set("cache-control", "no-store");
-  return response;
+  return redirectResponse(url, 302, [
+    ["x-auth-error-status", String(status)],
+  ]);
+}
+
+function redirectResponse(
+  destination: string | URL,
+  status: 302 | 303,
+  extraHeaders: Array<[string, string]> = [],
+) {
+  const headers = new Headers({
+    "cache-control": "no-store",
+    location: destination.toString(),
+  });
+  for (const [name, value] of extraHeaders) headers.append(name, value);
+  return new Response(null, { status, headers });
 }
 
 function randomBase64Url(size: number) {

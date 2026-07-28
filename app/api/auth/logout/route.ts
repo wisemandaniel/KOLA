@@ -18,12 +18,14 @@ export async function GET(request: Request) {
       .run();
   }
 
-  const response = Response.redirect(new URL(returnTo, request.url), 303);
-  response.headers.append(
-    "set-cookie",
-    `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
-  );
-  return response;
+  return new Response(null, {
+    status: 303,
+    headers: {
+      "cache-control": "no-store",
+      location: new URL(returnTo, request.url).toString(),
+      "set-cookie": `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
+    },
+  });
 }
 
 export const POST = GET;
