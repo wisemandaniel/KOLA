@@ -144,7 +144,7 @@ export default function TrackingClient({ orderId }: { orderId: string }) {
                   {data.courier?.vehicle || "Courier"}
                 </small>
               </div>
-              <Link href="/signin-with-chatgpt?return_to=%2Fdashboard">
+              <Link href="/login?return_to=%2Fdashboard">
                 <MessageCircle size={13} />
                 Message
               </Link>
@@ -173,7 +173,7 @@ export default function TrackingClient({ orderId }: { orderId: string }) {
 
             <div className="tracking-help">
               <span>Need help with this order?</span>
-              <Link href="/signin-with-chatgpt?return_to=%2Fdashboard">Open order support</Link>
+              <Link href="/login?return_to=%2Fdashboard">Open order support</Link>
             </div>
           </aside>
         </div>

@@ -12,13 +12,13 @@ import {
   Truck,
   Users,
 } from "lucide-react";
-import { getChatGPTUser } from "./chatgpt-auth";
+import { getAuthenticatedUser } from "./auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function LandingPage() {
-  const user = await getChatGPTUser();
-  const start = user ? "/dashboard" : "/signin-with-chatgpt?return_to=%2Fonboarding";
+  const user = await getAuthenticatedUser();
+  const start = user ? "/dashboard" : "/login?return_to=%2Fonboarding";
 
   return (
     <main className="pro-site">

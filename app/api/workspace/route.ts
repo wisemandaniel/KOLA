@@ -1,16 +1,18 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { getAuthenticatedUser } from "../../auth";
 
 export const dynamic = "force-dynamic";
 type Row = Record<string, unknown>;
 
 async function requireActor() {
-  const identity = await getChatGPTUser();
+  const identity = await getAuthenticatedUser();
   if (!identity) return null;
-  const now = Date.now();
-  await env.DB.prepare("INSERT OR IGNORE INTO users (id,email,display_name,active_role,language,onboarding_complete,created_at) VALUES (?,?,?,?,?,?,?)")
-    .bind(identity.email, identity.email, identity.displayName, "customer", "en", 0, now).run();
-  return await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(identity.email).first<Row>();
+  if (identity.provider === "chatgpt") {
+    await env.DB.prepare("INSERT OR IGNORE INTO users (id,email,display_name,active_role,language,onboarding_complete,created_at) VALUES (?,?,?,?,?,?,?)")
+      .bind(identity.userId, identity.email, identity.displayName, "customer", "en", 0, Date.now()).run();
+  }
+  const actor = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(identity.userId).first<Row>();
+  return actor ? { ...actor, _auth_provider: identity.provider } : null;
 }
 
 function reject(message: string, status = 400) {
@@ -56,7 +58,7 @@ export async function GET() {
     ) ORDER BY m.created_at ASC LIMIT 500`).bind(actor.id, actor.id, actor.id),
   ]);
   return Response.json({
-    actor: { id: actor.id, email: actor.email, displayName: actor.display_name, activeRole: role, language: actor.language, city: actor.city, onboardingComplete: !!actor.onboarding_complete },
+    actor: { id: actor.id, email: actor.email, displayName: actor.display_name, activeRole: role, language: actor.language, city: actor.city, onboardingComplete: !!actor.onboarding_complete, authProvider: actor._auth_provider },
     products: products.results, vendors: vendors.results, orders: orders.results, deliveries: deliveries.results, messages: messages.results, addresses: addresses.results,
   });
 }
@@ -69,10 +71,14 @@ export async function POST(request: Request) {
 
   if (action === "complete_onboarding") {
     const selectedRole = String(body.role ?? "customer");
-    const phone = String(body.phone ?? "").replace(/\s/g, "");
+    const submittedPhone = String(body.phone ?? "").replace(/\s/g, "");
+    const phone = actor._auth_provider === "whatsapp" && actor.phone
+      ? String(actor.phone)
+      : submittedPhone;
+    const displayName = String(body.displayName ?? actor.display_name).trim();
     const city = String(body.city ?? "").trim();
-    if (!["customer","vendor","rider"].includes(selectedRole) || phone.length < 8 || !city) return reject("Complete all required fields");
-    await db.prepare("UPDATE users SET active_role=?,phone=?,city=?,onboarding_complete=1 WHERE id=?").bind(selectedRole, phone, city, userId).run();
+    if (!["customer","vendor","rider"].includes(selectedRole) || !displayName || phone.length < 8 || !city) return reject("Complete all required fields");
+    await db.prepare("UPDATE users SET display_name=?,active_role=?,phone=?,city=?,onboarding_complete=1 WHERE id=?").bind(displayName, selectedRole, phone, city, userId).run();
     if (selectedRole === "vendor") {
       const businessName = String(body.businessName ?? `${actor.display_name}'s store`).trim();
       const id = `vnd_${crypto.randomUUID()}`;

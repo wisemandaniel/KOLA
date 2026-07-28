@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -11,6 +11,40 @@ export const users = sqliteTable("users", {
   onboardingComplete: integer("onboarding_complete", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull(),
 });
+
+export const authIdentities = sqliteTable("auth_identities", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  providerUserId: text("provider_user_id").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("auth_identity_provider_user_unique").on(table.provider, table.providerUserId),
+  index("auth_identity_user_idx").on(table.userId),
+]);
+
+export const authChallenges = sqliteTable("auth_challenges", {
+  id: text("id").primaryKey(),
+  phone: text("phone").notNull(),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  consumedAt: integer("consumed_at"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("auth_challenge_phone_created_idx").on(table.phone, table.createdAt),
+]);
+
+export const authSessions = sqliteTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("auth_session_token_unique").on(table.tokenHash),
+  index("auth_session_user_idx").on(table.userId),
+]);
 
 export const addresses = sqliteTable("addresses", {
   id: text("id").primaryKey(),
