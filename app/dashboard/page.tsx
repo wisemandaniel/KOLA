@@ -6,39 +6,37 @@ import SuperadminDashboard from "./SuperadminDashboard";
 
 export const dynamic = "force-dynamic";
 
-type Profile = {
-  display_name: string;
-  email: string;
-  city: string | null;
-  active_role: "customer" | "vendor" | "rider" | "admin" | "superadmin";
-  is_admin: number;
-  admin_level: "none" | "admin" | "superadmin";
-  onboarding_complete: number;
-};
+type Profile = Record<string, unknown>;
 
 export default async function DashboardPage() {
   const identity = await requireAuthenticatedUser("/dashboard");
-  const profile = await env.DB.prepare(
-    `SELECT display_name,email,city,active_role,is_admin,admin_level,onboarding_complete
-     FROM users WHERE id = ?`,
-  )
+
+  // Read the complete row rather than naming optional columns. Some early Kola
+  // D1 databases were created before fields such as `city` were introduced,
+  // and selecting a missing column makes D1 abort the whole server render.
+  const profile = await env.DB.prepare("SELECT * FROM users WHERE id = ?")
     .bind(identity.userId)
     .first<Profile>();
 
-  if (!profile?.onboarding_complete) redirect("/onboarding");
+  if (!profile) redirect("/login?auth_error=Account%20profile%20not%20found");
+  if (!Boolean(profile.onboarding_complete)) redirect("/onboarding");
 
-  const role = profile.active_role || identity.activeRole;
-  const adminLevel = profile.admin_level || identity.adminLevel;
+  const role = String(profile.active_role ?? identity.activeRole ?? "customer");
+  const adminLevel = String(profile.admin_level ?? identity.adminLevel ?? "none");
   const isSuperadmin =
-    role === "superadmin" || adminLevel === "superadmin" || identity.adminLevel === "superadmin";
+    role === "superadmin" ||
+    adminLevel === "superadmin" ||
+    identity.adminLevel === "superadmin";
 
   if (isSuperadmin) {
     return (
       <SuperadminDashboard
         actor={{
-          displayName: profile.display_name || identity.displayName || "Kola Administrator",
-          email: profile.email || identity.email,
-          city: profile.city || undefined,
+          displayName: String(
+            profile.display_name ?? identity.displayName ?? "Kola Administrator",
+          ),
+          email: String(profile.email ?? identity.email ?? ""),
+          city: profile.city ? String(profile.city) : undefined,
         }}
       />
     );
