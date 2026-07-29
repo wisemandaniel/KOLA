@@ -116,6 +116,8 @@ export function readRuntimeAuthConfig() {
     sessionSecret: stringValue(runtime.AUTH_SESSION_SECRET),
     waSenderApiKey: stringValue(runtime.WASENDER_API_KEY),
     superadminPhone: stringValue(runtime.KOLA_SUPERADMIN_PHONE),
+    bootstrapAdminEmail: stringValue(runtime.KOLA_BOOTSTRAP_ADMIN_EMAIL)?.toLowerCase(),
+    bootstrapAdminPassword: stringValue(runtime.KOLA_BOOTSTRAP_ADMIN_PASSWORD),
   };
 }
 
