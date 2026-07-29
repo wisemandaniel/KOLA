@@ -10,7 +10,10 @@ export type AuthenticatedUser = {
   displayName: string;
   email: string;
   phone: string | null;
-  provider: "whatsapp";
+  provider: "whatsapp" | "bootstrap-admin";
+  activeRole: "customer" | "vendor" | "rider" | "admin" | "superadmin";
+  isAdmin: boolean;
+  adminLevel: "none" | "admin" | "superadmin";
 };
 
 type SessionRow = {
@@ -18,7 +21,10 @@ type SessionRow = {
   display_name: string;
   email: string;
   phone: string | null;
-  provider: "whatsapp";
+  active_role: AuthenticatedUser["activeRole"];
+  is_admin: number;
+  admin_level: AuthenticatedUser["adminLevel"];
+  provider: AuthenticatedUser["provider"];
   account_status: string;
 };
 
@@ -28,8 +34,10 @@ export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> 
   if (!token) return null;
 
   const row = await env.DB.prepare(
-    `SELECT u.id, u.display_name, u.email, u.phone, u.account_status,
-            'whatsapp' AS provider
+    `SELECT u.id, u.display_name, u.email, u.phone, u.active_role, u.is_admin,
+            u.admin_level, u.account_status,
+            CASE WHEN u.admin_level IN ('admin','superadmin') THEN 'bootstrap-admin'
+                 ELSE 'whatsapp' END AS provider
      FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ? AND s.expires_at > ? AND u.account_status='active'
@@ -42,10 +50,13 @@ export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> 
 
   return {
     userId: row.id,
-    displayName: row.display_name,
+    displayName: row.display_name || "Kola Administrator",
     email: row.email,
     phone: row.phone,
     provider: row.provider,
+    activeRole: row.active_role || (row.is_admin ? "admin" : "customer"),
+    isAdmin: Boolean(row.is_admin),
+    adminLevel: row.admin_level || (row.is_admin ? "admin" : "none"),
   };
 }
 
