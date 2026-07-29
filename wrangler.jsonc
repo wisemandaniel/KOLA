@@ -3,7 +3,6 @@
   "name": "kola",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-07-29",
-  "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
     {
       "binding": "DB",
