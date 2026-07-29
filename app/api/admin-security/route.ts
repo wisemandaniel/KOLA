@@ -23,7 +23,7 @@ async function safeAll(sql: string, values: unknown[] = []) {
   try {
     let statement = env.DB.prepare(sql);
     if (values.length) statement = statement.bind(...values);
-    return (await statement.all<Row>()).results;
+    return (await statement.all<Row>()).results ?? [];
   } catch (error) {
     console.warn("admin-security query skipped", error);
     return [];
@@ -54,37 +54,55 @@ async function writeAudit(actorId: string, action: string, entityId: string, met
 }
 
 export async function GET() {
-  const actor = await currentActor();
+  let actor: Row | null;
+  try {
+    actor = await currentActor();
+  } catch (error) {
+    console.error("admin-security actor lookup failed", error);
+    return reject("Could not verify the current administrator", 500);
+  }
+
   if (!actor) return reject("Authentication required", 401);
   if (!isSuperadmin(actor)) return reject("Superadmin access required", 403);
 
   const now = Date.now();
-  const [activeSessions, expiredSessions, blockedWindows] = await Promise.all([
-    safeFirst("SELECT COUNT(*) AS total FROM auth_sessions WHERE expires_at>?", [now]),
-    safeFirst("SELECT COUNT(*) AS total FROM auth_sessions WHERE expires_at<=?", [now]),
-    safeFirst("SELECT COUNT(*) AS total FROM rate_limits WHERE expires_at>? AND count>1", [now]),
-  ]);
 
-  const sessions = await safeAll(`SELECT s.id,s.user_id,s.expires_at,s.created_at,
-    u.display_name,u.email,u.active_role,u.account_status
-    FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id
-    WHERE s.expires_at>? ORDER BY s.created_at DESC LIMIT 250`, [now]);
+  try {
+    const [activeSessions, expiredSessions, blockedWindows, sessions, events] = await Promise.all([
+      safeFirst("SELECT COUNT(*) AS total FROM auth_sessions WHERE expires_at>?", [now]),
+      safeFirst("SELECT COUNT(*) AS total FROM auth_sessions WHERE expires_at<=?", [now]),
+      safeFirst("SELECT COUNT(*) AS total FROM rate_limits WHERE expires_at>? AND count>1", [now]),
+      safeAll(`SELECT s.id,s.user_id,s.expires_at,s.created_at,
+        u.display_name,u.email,u.active_role,u.account_status
+        FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id
+        WHERE s.expires_at>? ORDER BY s.created_at DESC LIMIT 250`, [now]),
+      safeAll(`SELECT se.id,se.user_id,se.event_type,se.severity,se.user_agent,
+        se.metadata,se.created_at,u.display_name,u.email
+        FROM security_events se LEFT JOIN users u ON u.id=se.user_id
+        ORDER BY se.created_at DESC LIMIT 300`),
+    ]);
 
-  const events = await safeAll(`SELECT se.id,se.user_id,se.event_type,se.severity,se.user_agent,
-    se.metadata,se.created_at,u.display_name,u.email
-    FROM security_events se LEFT JOIN users u ON u.id=se.user_id
-    ORDER BY se.created_at DESC LIMIT 300`);
-
-  return secureJson({
-    metrics: {
-      activeSessions: Number(activeSessions?.total ?? 0),
-      expiredSessions: Number(expiredSessions?.total ?? 0),
-      activeRateLimits: Number(blockedWindows?.total ?? 0),
-    },
-    sessions,
-    events,
-    actorId: String(actor.id),
-  });
+    return secureJson({
+      metrics: {
+        activeSessions: Number(activeSessions?.total ?? sessions.length),
+        expiredSessions: Number(expiredSessions?.total ?? 0),
+        activeRateLimits: Number(blockedWindows?.total ?? 0),
+      },
+      sessions,
+      events,
+      actorId: String(actor.id ?? ""),
+      degraded: false,
+    });
+  } catch (error) {
+    console.error("admin-security overview failed", error);
+    return secureJson({
+      metrics: { activeSessions: 0, expiredSessions: 0, activeRateLimits: 0 },
+      sessions: [],
+      events: [],
+      actorId: String(actor.id ?? ""),
+      degraded: true,
+    });
+  }
 }
 
 export async function POST(request: Request) {
@@ -134,12 +152,27 @@ export async function POST(request: Request) {
     }
 
     if (action === "cleanup_expired") {
-      const results = await env.DB.batch([
+      const deletions = [
         env.DB.prepare("DELETE FROM auth_sessions WHERE expires_at<=?").bind(now),
-        env.DB.prepare("DELETE FROM rate_limits WHERE expires_at<=?").bind(now),
-        env.DB.prepare("DELETE FROM auth_challenges WHERE expires_at<=? OR consumed_at IS NOT NULL").bind(now),
-      ]);
-      const removed = results.reduce((total, result) => total + Number(result.meta.changes ?? 0), 0);
+      ];
+
+      try {
+        deletions.push(env.DB.prepare("DELETE FROM rate_limits WHERE expires_at<=?").bind(now));
+      } catch {}
+      try {
+        deletions.push(env.DB.prepare("DELETE FROM auth_challenges WHERE expires_at<=? OR consumed_at IS NOT NULL").bind(now));
+      } catch {}
+
+      let removed = 0;
+      for (const statement of deletions) {
+        try {
+          const result = await statement.run();
+          removed += Number(result.meta.changes ?? 0);
+        } catch (error) {
+          console.warn("admin-security cleanup statement skipped", error);
+        }
+      }
+
       await writeAudit(String(actor.id), "security.expired_records_cleaned", "auth", { removed });
       return secureJson({ ok: true, removed });
     }
