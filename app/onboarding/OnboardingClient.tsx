@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   ArrowLeft,
@@ -33,7 +32,6 @@ export default function OnboardingClient({
   const [vehicleType, setVehicleType] = useState("motorcycle");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const router = useRouter();
 
   const finish = async () => {
     if (busy) return;
@@ -52,15 +50,18 @@ export default function OnboardingClient({
       let data: { error?: string; redirectTo?: string } = {};
       try { data = text ? JSON.parse(text) as typeof data : {}; } catch { data = {}; }
       if (!response.ok) throw new Error(data.error || `Registration failed (${response.status}).`);
-      router.push(data.redirectTo || "/dashboard");
-      router.refresh();
+
+      // Use a full document navigation instead of an RSC transition. This forces
+      // the dashboard request to re-read the freshly updated D1 profile rather
+      // than reusing the onboarding route tree that initiated the mutation.
+      window.location.assign(`${data.redirectTo || "/dashboard"}?onboarded=${Date.now()}`);
     } catch (caught) {
       setError(caught instanceof DOMException && caught.name === "AbortError"
         ? "Account creation took too long. Please try again."
         : caught instanceof Error ? caught.message : "Registration failed.");
+      setBusy(false);
     } finally {
       window.clearTimeout(timeout);
-      setBusy(false);
     }
   };
 
