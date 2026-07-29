@@ -17,12 +17,15 @@ export const dynamic = "force-dynamic";
 type ExistingUser = { id: string };
 
 export async function POST(request: Request) {
+  let stage = "start";
   try {
     const crossSite = rejectCrossSiteMutation(request);
     if (crossSite) return crossSite;
 
+    stage = "ensure-schema";
     await ensureBootstrapAuthSchema();
 
+    stage = "rate-limit";
     const limited = await enforceRateLimit({
       request,
       scope: "auth.bootstrap-admin.ip",
@@ -76,12 +79,16 @@ export async function POST(request: Request) {
       return reject("Invalid administrator credentials.", 401);
     }
 
+    const normalizedEmail = config.bootstrapAdminEmail.toLowerCase();
     const now = Date.now();
+
+    stage = "find-user";
     let user = await env.DB.prepare("SELECT id FROM users WHERE lower(email)=? LIMIT 1")
-      .bind(config.bootstrapAdminEmail.toLowerCase())
+      .bind(normalizedEmail)
       .first<ExistingUser>();
 
     if (!user) {
+      stage = "create-user";
       const userId = `usr_${crypto.randomUUID()}`;
       await env.DB.prepare(
         `INSERT INTO users
@@ -89,10 +96,11 @@ export async function POST(request: Request) {
            account_status,onboarding_complete,created_at)
          VALUES (?,?,?,NULL,'superadmin','en',1,'superadmin','active',1,?)`,
       )
-        .bind(userId, config.bootstrapAdminEmail.toLowerCase(), "Kola Administrator", now)
+        .bind(userId, normalizedEmail, "Kola Administrator", now)
         .run();
       user = { id: userId };
     } else {
+      stage = "promote-user";
       await env.DB.prepare(
         `UPDATE users
          SET display_name='Kola Administrator', active_role='superadmin', is_admin=1,
@@ -103,7 +111,10 @@ export async function POST(request: Request) {
         .run();
     }
 
+    stage = "create-session";
     const session = await createSession(user.id);
+
+    stage = "security-event";
     await recordSecurityEvent(request, {
       eventType: "auth.login.success",
       userId: user.id,
@@ -114,12 +125,39 @@ export async function POST(request: Request) {
     response.headers.append("set-cookie", session.cookie);
     return response;
   } catch (error) {
-    console.error("bootstrap-admin login failed", error);
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`bootstrap-admin login failed at ${stage}: ${detail}`, error);
     return reject("Administrator login could not be completed. Please try again.", 500);
   }
 }
 
 async function ensureBootstrapAuthSchema() {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      phone TEXT,
+      active_role TEXT NOT NULL DEFAULT 'customer',
+      language TEXT NOT NULL DEFAULT 'en',
+      is_admin INTEGER NOT NULL DEFAULT 0,
+      admin_level TEXT NOT NULL DEFAULT 'none',
+      account_status TEXT NOT NULL DEFAULT 'active',
+      onboarding_complete INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`,
+  ).run();
+
+  await ensureColumn("users", "display_name", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("users", "phone", "TEXT");
+  await ensureColumn("users", "active_role", "TEXT NOT NULL DEFAULT 'customer'");
+  await ensureColumn("users", "language", "TEXT NOT NULL DEFAULT 'en'");
+  await ensureColumn("users", "is_admin", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn("users", "admin_level", "TEXT NOT NULL DEFAULT 'none'");
+  await ensureColumn("users", "account_status", "TEXT NOT NULL DEFAULT 'active'");
+  await ensureColumn("users", "onboarding_complete", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn("users", "created_at", "INTEGER NOT NULL DEFAULT 0");
+
   await env.DB.batch([
     env.DB.prepare(
       `CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -153,6 +191,12 @@ async function ensureBootstrapAuthSchema() {
       )`,
     ),
   ]);
+}
+
+async function ensureColumn(table: string, column: string, definition: string) {
+  const columns = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  if (columns.results.some((entry) => entry.name === column)) return;
+  await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
 }
 
 function constantTimeEqual(first: string, second: string): boolean {
