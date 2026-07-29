@@ -38,6 +38,8 @@ export async function POST(request: Request) {
       return reject("The registration request could not be read.");
     }
 
+    await ensureOnboardingSchema();
+
     const actor = await env.DB.prepare("SELECT * FROM users WHERE id=?")
       .bind(identity.userId)
       .first<Row>();
@@ -58,7 +60,6 @@ export async function POST(request: Request) {
       return reject("Complete all required contact details.");
     }
 
-    await ensureOnboardingTables();
     const now = Date.now();
 
     await env.DB.prepare(
@@ -124,41 +125,72 @@ export async function POST(request: Request) {
   }
 }
 
-async function ensureOnboardingTables() {
-  const statements = [
-    `CREATE TABLE IF NOT EXISTS vendors (
-      id TEXT PRIMARY KEY,
-      owner_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      category TEXT NOT NULL,
-      address TEXT NOT NULL,
-      city TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      rating REAL NOT NULL DEFAULT 5,
-      created_at INTEGER NOT NULL
-    )`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_owner ON vendors(owner_id)`,
-    `CREATE TABLE IF NOT EXISTS courier_profiles (
-      user_id TEXT PRIMARY KEY,
-      vehicle_type TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'offline',
-      verification_status TEXT NOT NULL DEFAULT 'pending',
-      rating REAL NOT NULL DEFAULT 5,
-      completed_deliveries INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS addresses (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      label TEXT NOT NULL,
-      address TEXT NOT NULL,
-      city TEXT NOT NULL,
-      instructions TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_addresses_user ON addresses(user_id)`,
-  ];
-  for (const sql of statements) await env.DB.prepare(sql).run();
+async function ensureOnboardingSchema() {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS vendors (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL DEFAULT 'Retail',
+    address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    rating REAL NOT NULL DEFAULT 5,
+    created_at INTEGER NOT NULL DEFAULT 0
+  )`).run();
+
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS courier_profiles (
+    user_id TEXT PRIMARY KEY,
+    vehicle_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'offline',
+    verification_status TEXT NOT NULL DEFAULT 'pending',
+    rating REAL NOT NULL DEFAULT 5,
+    completed_deliveries INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`).run();
+
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS addresses (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    address TEXT NOT NULL,
+    city TEXT NOT NULL DEFAULT '',
+    instructions TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`).run();
+
+  await ensureColumns("users", {
+    city: "TEXT",
+    onboarding_complete: "INTEGER NOT NULL DEFAULT 0",
+  });
+  await ensureColumns("vendors", {
+    owner_id: "TEXT",
+    slug: "TEXT",
+    category: "TEXT NOT NULL DEFAULT 'Retail'",
+    address: "TEXT NOT NULL DEFAULT ''",
+    city: "TEXT NOT NULL DEFAULT ''",
+    status: "TEXT NOT NULL DEFAULT 'active'",
+    rating: "REAL NOT NULL DEFAULT 5",
+    created_at: "INTEGER NOT NULL DEFAULT 0",
+  });
+  await ensureColumns("addresses", {
+    city: "TEXT NOT NULL DEFAULT ''",
+    instructions: "TEXT",
+    is_default: "INTEGER NOT NULL DEFAULT 0",
+    created_at: "INTEGER NOT NULL DEFAULT 0",
+  });
+
+  await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_owner ON vendors(owner_id)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_addresses_user ON addresses(user_id)").run();
+}
+
+async function ensureColumns(table: string, columns: Record<string, string>) {
+  const info = await env.DB.prepare(`PRAGMA table_info(${table})`).all<Row>();
+  const existing = new Set(info.results.map((column) => String(column.name)));
+  for (const [name, definition] of Object.entries(columns)) {
+    if (!existing.has(name)) {
+      await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`).run();
+    }
+  }
 }
