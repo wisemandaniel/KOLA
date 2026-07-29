@@ -32,6 +32,8 @@ export async function enforceRateLimit({
   limit: number;
   windowSeconds: number;
 }): Promise<Response | null> {
+  await ensureRateLimitTable();
+
   const now = Date.now();
   const windowMs = windowSeconds * 1000;
   const windowStart = Math.floor(now / windowMs) * windowMs;
@@ -64,6 +66,20 @@ export async function enforceRateLimit({
   );
 }
 
+async function ensureRateLimitTable() {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS rate_limits (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    subject_hash TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 1,
+    window_start INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  )`).run();
+  await env.DB.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_rate_limits_expires_at ON rate_limits(expires_at)",
+  ).run();
+}
+
 export async function recordSecurityEvent(
   request: Request,
   {
@@ -79,6 +95,16 @@ export async function recordSecurityEvent(
   },
 ) {
   try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS security_events (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      event_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      ip_hash TEXT,
+      user_agent TEXT,
+      metadata TEXT,
+      created_at INTEGER NOT NULL
+    )`).run();
     await env.DB.prepare(
       `INSERT INTO security_events
         (id,user_id,event_type,severity,ip_hash,user_agent,metadata,created_at)
