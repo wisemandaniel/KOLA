@@ -1,38 +1,16 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
-
-const KOLA_DATABASE_NAME = "kola-db";
-const KOLA_DATABASE_ID = "9d7a2abc-a05d-4573-8344-c1c380f5b6dd";
-const KOLA_MEDIA_BUCKET = "kola-media";
-
-const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
-const cloudflareBindingConfig = {
+// D1 and R2 bindings live in wrangler.jsonc. Keeping them in one place avoids
+// duplicate DB/MEDIA bindings when Vinext generates dist/server/wrangler.json.
+const cloudflareWorkerConfig = {
   main: "./worker/index.ts",
   compatibility_date: "2026-07-29",
   compatibility_flags: ["nodejs_compat"],
-  d1_databases: d1
-    ? [
-        {
-          binding: d1,
-          database_name: KOLA_DATABASE_NAME,
-          database_id: KOLA_DATABASE_ID,
-        },
-      ]
-    : [],
-  r2_buckets: r2
-    ? [
-        {
-          binding: r2,
-          bucket_name: KOLA_MEDIA_BUCKET,
-        },
-      ]
-    : [],
 };
 
 export default defineConfig(async () => {
@@ -54,7 +32,7 @@ export default defineConfig(async () => {
       sites(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        config: cloudflareBindingConfig,
+        config: cloudflareWorkerConfig,
       }),
     ],
   };
